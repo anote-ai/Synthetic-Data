@@ -41,4 +41,26 @@ Each example is self-contained and includes:
 - Performance evaluation
 - Best practices and tips
 
+## 🔧 Setup
+
+```bash
+# Install required dependencies
+pip install -r ../requirements.txt
+
+# Set up API credentials
+export SYNTHETIC_DATA_API_KEY="your_api_key"
+export OPENAI_API_KEY="your_openai_key"  # For LLM generation
+```
+
+## 📊 Quality Assurance Examples
+
+Each example demonstrates our multi-layered quality approach:
+1. Heuristic validation
+2. AI-powered review
+3. Iterative refinement
+4. Benchmark comparison
+
+
+
+
 
