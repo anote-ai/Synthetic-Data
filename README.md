@@ -23,3 +23,22 @@ Training Data: For example, generating synthetic audio for training models like 
 Training Data for Agents: For example, generating data to train agents that perform tasks using browsers, operating systems, or in multi-agent environments. This includes sequences of user or system interactions.
 
 
+This directory contains comprehensive examples demonstrating how to use the SyntheticDataGen API across different data modalities and use cases.
+
+## 📁 Directory Structure - Types of Generators 
+- **text/**: Text-based dataset generation examples
+- **images/**: Image dataset generation and annotation
+- **video/**: Video dataset creation examples  
+- **audio/**: Audio dataset generation examples
+- **agents/**: Agent behavior dataset examples
+- **evaluation/**: Dataset evaluation and benchmarking
+
+## 🚀 Getting Started
+Each example is self-contained and includes:
+- Complete working code
+- Detailed documentation
+- Quality validation steps
+- Performance evaluation
+- Best practices and tips
+
+
