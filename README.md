@@ -60,6 +60,19 @@ Each example demonstrates our multi-layered quality approach:
 3. Iterative refinement
 4. Benchmark comparison
 
+If you're using yolo_v11 server for image generation 
+install dependencies: 
+```bash
+pip install ultralytics
+pip install openai requests ultralytics
+```
+
+Download Yolov11 weights
+```bash
+# Use pretrained YOLOv11 model from Ultralytics (replace with actual if needed)
+wget https://path-to-your-model/yolo11n.pt  # Or use your own checkpoint
+```
+
 
 
 
