@@ -21,7 +21,7 @@ pipe = StableDiffusionPipeline.from_pretrained("runwayml/stable-diffusion-v1-5")
 
 def generate_image_with_prompt(class_name, idx):
     prompt = f"underwater photo of a {class_name}, clear visibility, blue ocean background, some noise"
-    image = pipe(prompt, num_inference_steps=30).images[0]
+    image = pipe(prompt, num_inference_steps=15).images[0] #reduced from 30 to 15 for minimal memory usage
     image_path = f"{OUTPUT_DIR}/images/{class_name}_{idx}.jpg"
     image.save(image_path)
     return image_path, image
@@ -43,12 +43,16 @@ def create_annotation(image_path, class_name, bbox, image_id):
     return annotation
 
 annotations = []
-for i in range(100):  # Generate 100 synthetic images
+for i in range(1):  # Generate 100 synthetic images
     cls = random.choice(CLASSES)
     img_path, img = generate_image_with_prompt(cls, i)
     bbox = generate_random_bbox(img.width, img.height)
     ann = create_annotation(img_path, cls, bbox, i)
     annotations.append(ann)
+    pipe = None
+    import gc
+    gc.collect()
+
 
 with open(f"{OUTPUT_DIR}/annotations/annotations.json", "w") as f:
     json.dump(annotations, f, indent=2)
