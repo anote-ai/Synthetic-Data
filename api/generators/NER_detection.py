@@ -107,22 +107,22 @@ def prompt(seed: dict):
 MODEL = "gpt-4o-mini"
 TEMP = 0.9
 
-# Generate a single synthetic PII text with entity labels
+# Generate a single synthetic PII text
 async def generate_single_example():
     # Randomly choose 4 to 6 PII types
     selected_fields = random.sample(list(FIELD.keys()), k=random.randint(4, 6))
 
-    # Generate values for the selected PII fields
+    # Generate values
     seed_values = {}
     for field in selected_fields:
         generator = FIELD[field]
         value = generator() if callable(generator) else generator
         seed_values[field] = value
 
-    # Format GPT prompt using the selected values
+    # Format the prompt
     messages = prompt(seed_values)
 
-    # Call the OpenAI chat model
+    # Call the OpenAI
     response = await client.chat.completions.create(
         model=MODEL,
         messages=messages,
@@ -149,7 +149,7 @@ async def generate_single_example():
     }
 
 
-# Generate a full dataset of synthetic PII examples using async concurrency
+# Generate a full dataset
 async def generate_dataset(num_examples=300, max_concurrent_requests=10):
     semaphore = asyncio.Semaphore(max_concurrent_requests)
     results = []
@@ -201,15 +201,15 @@ asyncio.run(main())
 
 example_path = "synthetic_example.jsonl"
 
-# Preview the first 5 examples
-with open(example_path, "r", encoding="utf-8") as f:
-    first_five = list(itertools.islice(f, 5))
+# Preview
+# with open(example_path, "r", encoding="utf-8") as f:
+#     first_five = list(itertools.islice(f, 5))
 
-for i, line in enumerate(first_five, start=1):
-    obj = json.loads(line)
-    print(f"\n--- Sample {i} ---")
-    print("Text:", obj["text"])
-    print("Entities:", obj["entities"])
+# for i, line in enumerate(first_five, start=1):
+#     obj = json.loads(line)
+#     print(f"\n--- Sample {i} ---")
+#     print("Text:", obj["text"])
+#     print("Entities:", obj["entities"])
 
 
 # Load synthetic JSONL
@@ -219,7 +219,7 @@ with open(example_path, "r", encoding="utf-8") as f:
         example = json.loads(line)
         examples.append(example)
 
-# Shuffle + train/dev split
+# Shuffle 
 random.seed(42)
 random.shuffle(examples)
 
@@ -274,10 +274,10 @@ subprocess.run([
 
 
 
-# Load existing config
+# Load config
 cfg = load_config("config.cfg")
 
-# Remove init_tok2vec if present
+# Remove init_tok2vec i
 if "initialize" in cfg and "init_tok2vec" in cfg["initialize"]:
     del cfg["initialize"]["init_tok2vec"]
 
@@ -293,7 +293,7 @@ cfg["corpora"] = {
     }
 }
 
-#  remove any 'vectors' keys from the config
+#  remove any 'vectors' keys
 def remove_vectors(config_section):
 
     if isinstance(config_section, dict):
@@ -309,7 +309,7 @@ def remove_vectors(config_section):
 
 remove_vectors(cfg)
 
-# Save the cleaned config back to disk
+# Savevto cfg
 cfg.to_disk("config.cfg")
 print("Cleaned and saved config.cfg")
 
@@ -333,13 +333,13 @@ with open("synthetic_example.jsonl", "r", encoding="utf-8") as f:
         labeled_spans = [(text[start:end], label) for start, end, label in entities]
         examples.append((text, labeled_spans))
 
-# Preview a few examples
-for i, (text, entities) in enumerate(examples[:3], start=1):
-    print(f"\n--- Example {i} ---")
-    print("TEXT:", text)
-    print("ENTITIES:", entities)
+# # Preview
+# for i, (text, entities) in enumerate(examples[:3], start=1):
+#     print(f"\n--- Example {i} ---")
+#     print("TEXT:", text)
+#     print("ENTITIES:", entities)
 
-# Load the trained spaCy model
+# Load the model
 nlp = spacy.load("training_output/model-best")
 
 # Evaluate the model
@@ -370,7 +370,7 @@ for text, true_ents in examples:
         "IoU": round(iou, 2)
     })
 
-# Convert to DataFrame and show preview
+# Convert to DF
 df = pd.DataFrame(results)
 df.head()
 
