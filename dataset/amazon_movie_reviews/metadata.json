@@ -1,7 +1,0 @@
-{
-  "task": "sentiment-classification",
-  "language": "en",
-  "source": "synthetically generated via OpenAI",
-  "labels": ["positive", "neutral", "negative"],
-  "num_samples": 30
-}
