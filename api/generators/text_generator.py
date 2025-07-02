@@ -1,8 +1,14 @@
 import os
+import openai
 from openai import OpenAI
 import pandas as pd
+from dotenv import load_dotenv
+import os
 
-client = OpenAI(api_key="")  # replace with your actual key
+# Load environment variables from .env
+load_dotenv()
+
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def generate_reviews(prompt, num_rows=10, model="gpt-3.5-turbo"):
