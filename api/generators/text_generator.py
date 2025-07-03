@@ -32,11 +32,9 @@ def generate_reviews(prompt, num_rows=10, model="gpt-3.5-turbo"):
     return response.choices[0].message.content
 
 # Example prompt
-user_prompt = input("Enter your synthetic dataset prompt: ")
-# prompt = "Generate a dataset of movies with columns: name, year, genre, rating"
-csv_data = generate_reviews(user_prompt, num_rows=10)
-
-# Print and save
-print(csv_data)
-with open("synthetic_reviews.csv", "w", encoding="utf-8") as f:
-    f.write(csv_data)
+if __name__ == "__main__":
+    user_prompt = input("Enter your synthetic dataset prompt: ")
+    csv_data = generate_reviews(user_prompt, num_rows=10)
+    print(csv_data)
+    with open("synthetic_reviews.csv", "w", encoding="utf-8") as f:
+        f.write(csv_data)

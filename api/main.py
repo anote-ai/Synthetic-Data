@@ -2,12 +2,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
+from api.routes import generate
 
 # Load environment variables from .env
 load_dotenv()
 
 # Import routers (to be created per module)
-from api.routes import text, image, video, audio, agent
+from api.routes import generate
 
 app = FastAPI(
     title="Synthetic Data Generator API",
@@ -25,11 +26,7 @@ app.add_middleware(
 )
 
 # Register routers (you'll define these in `api/routes/`)
-app.include_router(text.router, prefix="/text", tags=["Text"])
-app.include_router(image.router, prefix="/image", tags=["Image"])
-app.include_router(video.router, prefix="/video", tags=["Video"])
-app.include_router(audio.router, prefix="/audio", tags=["Audio"])
-app.include_router(agent.router, prefix="/agent", tags=["Agent"])
+app.include_router(generate.router, prefix="/api", tags=["Generate"])
 
 # Optional root endpoint
 @app.get("/")
