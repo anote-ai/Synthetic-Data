@@ -1,0 +1,7 @@
+faker
+tqdm
+pandas
+nest_asyncio
+scikit-learn
+openai
+spacy
