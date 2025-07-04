@@ -20,6 +20,7 @@ from spacy.util import load_config
 from spacy.tokens import DocBin
 from spacy.training.example import Example
 import itertools
+import random
 
 
 # API
@@ -72,36 +73,82 @@ FIELD = {
     "EDUCATION": lambda: fake.bothify("STU#####"),
 }
 
-# GPT prompt parameters
-WORD_MIN, WORD_MAX  = 40, 120
+
+# Constants
+WORD_MIN, WORD_MAX = 40, 120
 
 SYSTEM = (
-    "You're writing a short and casual description about someone. "
-    "Keep it in the third person — no 'I', 'my', or 'me'. "
-    "Use the full name exactly as it's given, and wrap things up with a proper sentence ending."
+    "You write short casual text ABOUT the person. The text needs to be reasonable and understandable to real people, and never in first-person. "
+    "Use the full name exactly as given (no I / my / me). "
+    "End with a period or exclamation mark."
+  
 )
 
-USER = """Write a short passage of around {minw} to {maxw} words describing the person.
-Make sure you include every detail below, exactly as shown. Feel free to add some extra text to make it flow,
-but don’t use first-person wording.
+# Multiple user prompt styles
+USER_TEMPLATES = [
+    # Informal styles
+    """Write an informal paragraph of {minw}-{maxw} words using all of the following facts. 
+Do not list them directly—blend them naturally into the writing. Finish with proper punctuation.""",
 
-Here’s what to include:
-{seed_table}
-"""
+    """Write a casual character sketch in {minw}-{maxw} words. 
+Include all the values below exactly as written, embedded smoothly in full sentences.""",
 
-# Prompt assembly that fits a more natural style
+    """Write a short, natural-sounding story or moment (between {minw}-{maxw} words) that includes every detail listed below. 
+Avoid using a list, and make sure all the facts are clearly present in the text.""",
+
+    # Formal styles
+    """Compose a professional background summary of {minw}-{maxw} words. 
+Ensure that each of the following values is mentioned verbatim and presented in a polished, coherent paragraph.""",
+
+    """Write a concise formal profile (between {minw}-{maxw} words) that incorporates all of the following details. 
+Avoid listing—integrate each fact into natural, professional sentences.""",
+
+    """Generate a third-person summary suitable for an internal report or personnel file. 
+Use {minw}-{maxw} words and include each fact below exactly as provided, without using a bulleted list.""",
+
+    """Create a brief narrative overview of {minw}-{maxw} words suitable for a government or institutional document. 
+All values below must appear as written, woven into a professional and neutral tone."""
+]
+
+
+#  tone or perspective variation
+TONE_HINTS = [
+    "Make it sound like gossip overheard at a cafe.",
+    "Pretend a coworker is describing them.",
+    "Make it feel like a neighbor sharing a story.",
+    "Give it the tone of a casual anecdote at a party.",
+    "Imagine a friend describing them after a trip."
+    "Write in the style of a biographical note for a personnel file.",
+    "Present the facts as part of a formal character reference.",
+    "Write a third-person summary for an official document.",
+    "Frame it as a descriptive paragraph in a background check report.",
+    "Present the individual in a professional tone as if for an HR profile.",
+    "Write it like a brief overview in a government or legal file.",
+    "Describe the person for inclusion in a corporate personnel directory.",
+    "Frame the text as if summarizing details for a formal application.",
+    "Write a short profile as it might appear in a confidential case report.",
+    "Describe the person as if in an identity verification summary."
+]
+
+def shuffle_seed_table(seed: dict) -> str:
+
+    items = list(seed.items())
+    random.shuffle(items)
+    return "\n".join(f"- {key}: {value}" for key, value in items)
+
 def prompt(seed: dict):
-    # Build out a friendly-looking list of details
-    rows = [f"- {key}: {value}" for key, value in seed.items()]
-    
+
+    seed_table = shuffle_seed_table(seed)
+    user_template = random.choice(USER_TEMPLATES)
+    tone_hint = random.choice(TONE_HINTS)
+
+    user_message = user_template.format(minw=WORD_MIN, maxw=WORD_MAX) + "\n" + tone_hint + "\n\n" + seed_table
+
     return [
         {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": USER.format(
-            minw=WORD_MIN,
-            maxw=WORD_MAX,
-            seed_table="\n".join(rows)
-        )}
+        {"role": "user", "content": user_message}
     ]
+
 
 # GPT model
 MODEL = "gpt-4o-mini"
