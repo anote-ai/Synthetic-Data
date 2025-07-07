@@ -1,4 +1,4 @@
-readme = f"""
+
 # Synthetic Undersea Object Detection Dataset
 
 This dataset contains 100 synthetically generated underwater images with bounding box annotations for 7 marine classes:
@@ -22,10 +22,3 @@ Each annotation contains:
 - class: class name
 - class_id: integer label
 - image_id: unique image identifier
-
-## License
-MIT License
-"""
-
-with open(f"{OUTPUT_DIR}/README.md", "w") as f:
-    f.write(readme)
