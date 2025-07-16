@@ -1,0 +1,35 @@
+
+torch>=2.0.0
+diffusers>=0.25.0
+transformers>=4.36.0
+accelerate>=0.21.0
+Pillow
+ultralytics>=8.0.20
+
+# Core image generation
+diffusers==0.26.3
+transformers==4.41.2
+torch>=2.2.0
+accelerate==0.30.1
+safetensors>=0.4.2
+
+# YOLOv11 and object detection
+ultralytics==8.2.26  # Ensure this supports YOLOv11 or swap with specific YOLOv11 repo
+
+# Image handling
+Pillow==10.3.0
+opencv-python==4.10.0.82
+
+# Data utilities
+numpy==1.26.4
+jsonlines==4.0.0
+
+# Optional (if you want GPU acceleration and don't already have CUDA installed):
+# Uncomment below lines based on your CUDA version
+# torch==2.2.0+cu118 --find-links https://download.pytorch.org/whl/torch_stable.html
+# torchvision==0.17.0+cu118 --find-links https://download.pytorch.org/whl/torch_stable.html
+
+# Environment
+tqdm==4.66.4
+
+
