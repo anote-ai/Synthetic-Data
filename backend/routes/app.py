@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from api.schemas.generate import GenerateRequest
-from api.generators import text_generator
+from backend.schemas.generate import GenerateRequest
+from generators import text_generator
 # from api.generators import video_generation  # Uncomment when API key is available
 
 router = APIRouter()

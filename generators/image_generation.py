@@ -3,10 +3,14 @@ import json
 import requests
 import os
 from ultralytics import YOLO
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 # configure openai
-openai.api_key = "INSERT_YOUR_OPENAI_KEY"
-print("Using API key:", openai.api_key[:10])
+openai.api_key = os.getenv("OPENAI_API_KEY")
+print("Using API key:", openai.api_key[:10] if openai.api_key else "Not set")
 YOLO_MODEL_PATH = "yolo11n.pt"  # Or replace with your model path
 
 # user prompt

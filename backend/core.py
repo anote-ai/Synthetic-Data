@@ -2,22 +2,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
-from api.routes import generate
+from backend.routes import app
 
 # Load environment variables from .env
 load_dotenv()
 
 # Import routers (to be created per module)
-from api.routes import generate
+from backend.routes import app
 
-app = FastAPI(
+app_main = FastAPI(
     title="Synthetic Data Generator API",
     description="API for generating synthetic datasets across multiple modalities.",
     version="1.0.0"
 )
 
 # Enable CORS (adjust origins as needed)
-app.add_middleware(
+app_main.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Consider limiting in production
     allow_credentials=True,
@@ -26,9 +26,13 @@ app.add_middleware(
 )
 
 # Register routers (you'll define these in `api/routes/`)
-app.include_router(generate.router, prefix="/api", tags=["Generate"])
+app_main.include_router(app.router, prefix="/api", tags=["Generate"])
 
 # Optional root endpoint
-@app.get("/")
+@app_main.get("/")
 def read_root():
     return {"message": "Welcome to the Synthetic Data Generation API!"}
+
+
+
+#to run the application: uvicorn backend.core:app_main --reload
