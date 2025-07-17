@@ -1,3 +1,5 @@
 .env
 **/synthetic_reviews.csv
 venv/
+__pycache__/
+*.pyc

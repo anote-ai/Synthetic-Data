@@ -12,7 +12,7 @@ Image Generation: For example, generating training data for image generation mod
 
 
 **Video:**
-Training Data: For example, creating training data for video generation models such as Veo3 or Sora, which require labeled or structured video sequences.
+Training Data: For example, generating synthetic training data for video generation models such as Veo3 or Sora. This involves creating structured video–prompt pairs where each video clip is associated with a descriptive text prompt (e.g., "A panda playing in the snow"). The resulting dataset includes downloadable .mp4 files and corresponding metadata in formats such as JSON, enabling supervised learning for models conditioned on text, images, or motion descriptors.
 
 
 **Audio:**
