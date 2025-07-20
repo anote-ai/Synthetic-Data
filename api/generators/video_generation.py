@@ -2,19 +2,23 @@ import os
 import json
 import time
 import requests
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
+from google.oauth2 import service_account
+from google.auth.transport.requests import AuthorizedSession
 
-# Setup
-load_dotenv()
-api_key = os.environ.get("GOOGLE_API_KEY")
-client = genai.Client(api_key=api_key)
+# 🔑 Authenticate with service account
+creds = service_account.Credentials.from_service_account_file(
+    "key.json",
+    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+)
+authed_session = AuthorizedSession(creds)
 
-os.makedirs("dataset/Video", exist_ok=True)
-os.makedirs("dataset/labels", exist_ok=True)
+# 📍 Vertex AI config
+PROJECT_ID = "infra-chimera-466009-p0"
+LOCATION = "us-central1"
+MODEL_ID = "veo-3.0-generate-preview"
+ENDPOINT = f"https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL_ID}:predict"
 
-# List of prompts for training data
+# 🎥 Prompts to generate
 prompts = [
     "A panda playing with snow in a bamboo forest",
     "A red sports car driving on a mountain road at sunset",
@@ -22,43 +26,62 @@ prompts = [
     "A lion walking through the savannah during golden hour"
 ]
 
-# Loop through prompts to generate video training pairs
+# 📁 Output directories
+os.makedirs("dataset/Video", exist_ok=True)
+os.makedirs("dataset/labels", exist_ok=True)
+
+# 🔁 Loop through prompts
 for i, prompt in enumerate(prompts):
-    print(f"🚀 Generating video for: {prompt}")
-    operation = client.models.generate_videos(
-        model="veo-2.0-generate-001",
-        prompt=prompt,
-        config=types.GenerateVideosConfig(
-            aspect_ratio="16:9",
-            person_generation="dont_allow",
-            number_of_videos=1,
-            duration_seconds=5,
-            enhance_prompt=True
-        ),
-    )
+    print(f"\n🚀 Generating video for prompt {i+1}/{len(prompts)}: {prompt}")
 
-    # Poll
-    while True:
-        op_status = client.operations.get(operation)
-        if op_status.done:
-            break
-        time.sleep(15)
+    # Build request payload
+    payload = {
+        "instances": [
+            {
+                "prompt": prompt,
+                "aspect_ratio": "16:9",
+                "duration": "8s",
+                "output_video_quality": "PREMIUM",
+                "output_audio": "ENABLED"
+            }
+        ]
+    }
 
-    if op_status.error:
-        print(f"⚠️ Failed: {op_status.error['message']}")
+    # 🔁 Send request
+    response = authed_session.post(ENDPOINT, json=payload)
+    if response.status_code != 200:
+        print(f"❌ Failed for prompt '{prompt}': {response.text}")
         continue
 
-    # Save video and label
-    for idx, video_obj in enumerate(op_status.response.generated_videos):
-        video_url = video_obj.video.uri
-        video_path = f"dataset/Video/video_{i}_{idx}.mp4"
-        label_path = f"dataset/Video/labels/video_{i}_{idx}.json"
+    # Get polling operation URL
+    result = response.json()
+    operation_url = result["predictions"][0]["operation"]
+    print(f"🔁 Polling: {operation_url}")
 
-        response = requests.get(video_url)
+    # Poll until video is ready
+    while True:
+        operation_response = authed_session.get(operation_url).json()
+        if operation_response.get("done"):
+            break
+        time.sleep(10)
+
+    try:
+        video_uri = operation_response["response"]["generatedVideos"][0]["video"]["uri"]
+        print(f"✅ Video ready: {video_uri}")
+
+        # Download video
+        video_path = f"dataset/Video/video_{i}.mp4"
+        label_path = f"dataset/labels/video_{i}.json"
+
+        video_data = requests.get(video_uri)
         with open(video_path, "wb") as f:
-            f.write(response.content)
+            f.write(video_data.content)
 
+        # Save label JSON
         with open(label_path, "w") as f:
             json.dump({"prompt": prompt, "video": video_path}, f, indent=2)
 
-        print(f"✅ Saved: {video_path} with label")
+        print(f"🎬 Saved: {video_path} + label")
+
+    except Exception as e:
+        print(f"❌ Error extracting video: {str(e)}")
