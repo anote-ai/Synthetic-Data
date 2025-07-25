@@ -1,0 +1,77 @@
+site_name: Anote
+site_url: https://docs.anote.ai
+use_directory_urls: false
+repo_url: https://github.com/nv78/OpenAnote
+
+nav:
+  - Synthetic Data Home: index.md
+  - Synthetic Data Library:
+    - Synthetic Data SDK:
+      - Overview: api-anote-generate/overview.md
+      - Setup: api-anote-generate/setup.md
+      - Generate: api-anote-generate/generate.md
+    - Synthetic Data SDK Examples:
+      - Text Example: anote-api-generate-examples/text.md
+      - Video Example: anote-api-generate-examples/video.md
+      - Image Example: anote-api-generate-examples/image.md
+      - Audio Example: anote-api-generate-examples/audio.md
+      - Agents Example: anote-api-generate-examples/agent.md
+extra:
+  homepage: https://anote.ai
+  social:
+    - icon: fontawesome/brands/linkedin
+      link: https://www.linkedin.com/company/anote-ai/
+    - icon: fontawesome/brands/medium
+      link: https://anote-ai.medium.com/
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - admonition
+  - pymdownx.arithmatex:
+      generic: true
+  - footnotes
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.mark
+  - attr_list
+  - tables
+
+theme:
+  name: material
+  features:
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+    - content.code.annotation
+  language: en
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/toggle-switch-off-outline
+        name: Switch to dark mode
+      primary: black
+      accent: light blue
+    - scheme: slate
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to light mode
+      primary: black
+      accent: lime
+  favicon: assets/favicon-removebg-preview.png
+  logo: assets/rocketlogo.png
+
+plugins:
+  - search:
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_section_style: table
+  - swagger-ui-tag:
+      syntaxHighlightTheme: monokai
+      tryItOutEnabled: false
+      supportedSubmitMethods: []
