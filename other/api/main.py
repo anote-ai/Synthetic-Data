@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 import os
 from api.routes import generate
 
+
+
+
 # Load environment variables from .env
 load_dotenv()
 
@@ -15,6 +18,7 @@ app = FastAPI(
     description="API for generating synthetic datasets across multiple modalities.",
     version="1.0.0"
 )
+
 
 # Enable CORS (adjust origins as needed)
 app.add_middleware(
