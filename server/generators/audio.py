@@ -14,6 +14,7 @@ model = WhisperModel(WHISPER_MODEL_SIZE, device=DEVICE, compute_type="float16" i
 def analyze_audio(audio_path):
     # Run various audio analysis models on a single audio file.
     segments, info = model.transcribe(audio_path, beam_size=5)
+    segments = list(segments)
     
     results = {
         "transcription": " ".join([seg.text for seg in segments]),
@@ -52,3 +53,4 @@ def generate_audio_data(prompt: str, columns: list, num_rows: int = 1, examples:
             results.append({"status": "failed", "error": str(e)})
 
     return results
+
