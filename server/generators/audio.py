@@ -53,25 +53,3 @@ def generate_audio_data(prompt: str, columns: list, num_rows: int = 1, examples:
             })
 
     return results
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run audio analysis on a .wav file.")
-    parser.add_argument("audio_path", type=str, help="Path to the .wav file to analyze")
-    args = parser.parse_args()
-
-    if not os.path.isfile(args.audio_path):
-        raise FileNotFoundError(f"File not found: {args.audio_path}")
-
-    result = analyze_audio(args.audio_path)
-
-    print("\n--- TRANSCRIPTION ---")
-    print(result["transcription"])
-
-    print("\n--- SEGMENTS ---")
-    for seg in result["segments"]:
-        print(f"[{seg['start']}s - {seg['end']}s]: {seg['text']}")
-
-    print("\n--- LANGUAGE DETECTED ---")
-    print(result["language"])
