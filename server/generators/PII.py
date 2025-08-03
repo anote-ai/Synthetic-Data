@@ -8,6 +8,7 @@ import string
 import re
 import asyncio
 
+# Ensure dependencies
 REQUIRED = ["faker", "openai", "tqdm", "nest_asyncio"]
 for pkg in REQUIRED:
     if importlib.util.find_spec(pkg) is None:
@@ -17,6 +18,13 @@ from faker import Faker
 from tqdm.auto import tqdm
 import nest_asyncio; nest_asyncio.apply()
 from openai import AsyncOpenAI
+
+
+WORD_MIN, WORD_MAX = 40, 120
+MODEL = "gpt-4o-mini"
+TEMP = 0.9
+CONCURRENCY = 5  
+DRY_RUN = False
 
 def ask_int(prompt_text, default):
     while True:
@@ -68,22 +76,13 @@ def load_api_key():
     return None
 
 OPENAI_KEY = load_api_key()
-DRY_RUN = False
 if not OPENAI_KEY:
     print("No Key")
     DRY_RUN = True
 else:
-    os.environ["OPENAI_API_KEY"] = "Key here"
+    os.environ.setdefault("OPENAI_API_KEY", OPENAI_KEY)
 
 client = AsyncOpenAI() if not DRY_RUN else None
-
-print("Synthetic PII Text Generator")
-N_ROWS = ask_int("How many synthetic PII examples to generate?", 100)
-CONCURRENCY = ask_int("Maximum concurrent requests?", 10)
-WORD_MIN, WORD_MAX = 40, 120
-MODEL = "gpt-4o-mini" 
-TEMP = ask_float("Temperature (0.0–1.0)?", 0.9)
-PREVIEW = ask_yesno("Would you like to preview one example before full generation?", True)
 
 # PII and prompt setup
 fake = Faker("en_US")
@@ -168,17 +167,20 @@ def shuffle_seed_table(seed: dict) -> str:
     random.shuffle(items)
     return "\n".join(f"- {key}: {value}" for key, value in items)
 
-def make_messages(seed: dict):
+def make_messages(seed: dict, extra_prompt: str = ""):
     seed_table = shuffle_seed_table(seed)
     user_template = random.choice(USER_TEMPLATES)
     tone_hint = random.choice(TONE_HINTS)
-    user_message = user_template.format(minw=WORD_MIN, maxw=WORD_MAX) + "\n" + tone_hint + "\n\n" + seed_table
+    user_message = user_template.format(minw=WORD_MIN, maxw=WORD_MAX)
+    if extra_prompt:
+        user_message = f"{extra_prompt}\n\n{user_message}"
+    user_message = user_message + "\n" + tone_hint + "\n\n" + seed_table
     return [
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": user_message}
     ]
 
-# Example generation
+# Core generation logic reused
 async def generate_single_example():
     selected_fields = random.sample(list(FIELD), k=random.randint(4, 6))
     seed_values = {field: FIELD[field]() for field in selected_fields}
@@ -237,6 +239,30 @@ async def generate_dataset(num_examples=500, max_concurrent_requests=10):
         results.append(result)
     return results
 
+async def generate_dataset_stream(num_examples=500, max_concurrent_requests=10, output_path="synthetic_example.jsonl", on_new_example=None):
+    """
+    Incrementally generates examples, writing each to disk as soon as it's done.
+    """
+    semaphore = asyncio.Semaphore(max_concurrent_requests)
+    async def worker():
+        async with semaphore:
+            return await generate_single_example()
+
+    tasks = [worker() for _ in range(num_examples)]
+    with open(output_path, "w", encoding="utf-8") as f:
+        for coro in tqdm(asyncio.as_completed(tasks), total=num_examples, desc="Generating (stream)"):
+            result = await coro
+            json_line = json.dumps(result, ensure_ascii=False)
+            f.write(json_line + "\n")
+            f.flush()
+            if on_new_example:
+                try:
+                    on_new_example(result)
+                except Exception:
+                    pass
+            print(json_line)
+    return None
+
 async def maybe_preview():
     print("\n--- Previewing one example ---")
     try:
@@ -253,21 +279,31 @@ async def maybe_preview():
         print("Aborted by user.")
         sys.exit(0)
 
-# Main entry
-async def main():
-    if PREVIEW:
-        await maybe_preview()
+async def generate_text_data(prompt, columns, num_rows, examples):
 
-    print(f"\nStarting generation of {N_ROWS} examples with concurrency={CONCURRENCY} using model={MODEL} temperature={TEMP}")
-    synthetic_rows = await generate_dataset(num_examples=N_ROWS, max_concurrent_requests=CONCURRENCY)
+    dataset = await generate_dataset(num_examples=num_rows, max_concurrent_requests=CONCURRENCY)
+    return dataset
 
-    output_path = "synthetic_example.jsonl"
-    with open(output_path, "w", encoding="utf-8") as f:
-        for row in synthetic_rows:
-            json_line = json.dumps(row, ensure_ascii=False)
-            f.write(json_line + "\n")
+def generate_text_data_sync(prompt, columns, num_rows, examples):
 
-    print(f"\nSaved {len(synthetic_rows)} synthetic records to {output_path}")
+    return asyncio.run(generate_text_data(prompt, columns, num_rows, examples))
 
+# Main entry (interactive)
 if __name__ == "__main__":
+    print("Synthetic PII Text Generator Interactive")
+    N_ROWS = ask_int("How many synthetic PII examples to generate?", 100)
+    CONCURRENCY = ask_int("Maximum concurrent requests?", 10)
+    WORD_MIN, WORD_MAX = 40, 120
+    MODEL = "gpt-4o-mini"
+    TEMP = ask_float("Temperature (0.0–1.0)?", 0.9)
+    PREVIEW = ask_yesno("Would you like to preview one example before full generation?", True)
+
+    async def main():
+        if PREVIEW:
+            await maybe_preview()
+
+        print(f"\nStarting generation of {N_ROWS} examples with concurrency={CONCURRENCY} using model={MODEL} temperature={TEMP}")
+        await generate_dataset_stream(num_examples=N_ROWS, max_concurrent_requests=CONCURRENCY)
+        print(f"\nSaved {N_ROWS} synthetic records to synthetic_example.jsonl")
+
     asyncio.run(main())
