@@ -279,12 +279,12 @@ async def maybe_preview():
         print("Aborted by user.")
         sys.exit(0)
 
-async def generate_text_data(prompt, columns, num_rows, examples):
+async def generate_PII_data(prompt, columns, num_rows, examples):
 
     dataset = await generate_dataset(num_examples=num_rows, max_concurrent_requests=CONCURRENCY)
     return dataset
 
-def generate_text_data_sync(prompt, columns, num_rows, examples):
+def generate_PII_data_sync(prompt, columns, num_rows, examples):
 
     return asyncio.run(generate_text_data(prompt, columns, num_rows, examples))
 
