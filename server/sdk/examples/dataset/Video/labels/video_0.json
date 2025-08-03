@@ -1,0 +1,11 @@
+{
+  "video_path": "server/sdk/examples/dataset/Video/video_0.mp4",
+  "annotations": [
+    {
+      "frame": 14,
+      "x": 219,
+      "y": 188,
+      "label": "cat"
+    }
+  ]
+}

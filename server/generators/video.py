@@ -3,12 +3,12 @@ import time
 import json
 import requests
 
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") or "r8_TmFVTZiq3U6NgMonmd5eza9YYEdX7YC0FZh8i"
 MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
 
 # Updated base path
-BASE_VIDEO_DIR = "sdk/examples/dataset/Video"
-BASE_LABEL_DIR = "sdk/examples/dataset/Video/labels"
+BASE_VIDEO_DIR = "server/sdk/examples/dataset/Video"
+BASE_LABEL_DIR = "server/sdk/examples/dataset/Video/labels"
 
 # Ensure directories exist
 os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
@@ -72,3 +72,4 @@ def generate_video_data(prompt: str, num_rows: int = 1, examples: list = []) -> 
 
     return results
 
+ad=generate_video_data("a cat riding a skateboard")
