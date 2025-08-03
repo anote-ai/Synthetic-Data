@@ -3,20 +3,25 @@ import time
 import json
 import requests
 
-# TODO: remove hardcoded values
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") or "r8_TmFVTZiq3U6NgMonmd5eza9YYEdX7YC0FZh8i"
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
 
-os.makedirs("dataset/Video", exist_ok=True)
-os.makedirs("dataset/labels", exist_ok=True)
+# Updated base path
+BASE_VIDEO_DIR = "sdk/examples/dataset/Video"
+BASE_LABEL_DIR = "sdk/examples/dataset/Video/labels"
 
-def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples: list = []) -> list:
+# Ensure directories exist
+os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
+os.makedirs(BASE_LABEL_DIR, exist_ok=True)
+
+def generate_video_data(prompt: str, num_rows: int = 1, examples: list = []) -> list:
     results = []
     for i in range(num_rows):
         headers = {
             "Authorization": f"Token {REPLICATE_API_TOKEN}",
             "Content-Type": "application/json",
         }
+
         data = {
             "version": MODEL_VERSION,
             "input": {
@@ -36,6 +41,7 @@ def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples:
         prediction = response.json()
         poll_url = prediction["urls"]["get"]
         status = prediction["status"]
+
         while status not in ["succeeded", "failed", "canceled"]:
             time.sleep(10)
             prediction = requests.get(poll_url, headers=headers).json()
@@ -46,10 +52,16 @@ def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples:
             continue
 
         video_url = prediction["output"]
-        video_path = f"dataset/Video/video_{i}.mp4"
+        video_path = os.path.join(BASE_VIDEO_DIR, f"video_{i}.mp4")
+        label_path = os.path.join(BASE_LABEL_DIR, f"video_{i}.json")
+
         video_data = requests.get(video_url)
         with open(video_path, "wb") as f:
             f.write(video_data.content)
+
+        # Save metadata
+        with open(label_path, "w") as f:
+            json.dump({"prompt": prompt, "video": video_path}, f, indent=2)
 
         results.append({
             "video_path": video_path,
@@ -59,3 +71,4 @@ def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples:
         })
 
     return results
+
