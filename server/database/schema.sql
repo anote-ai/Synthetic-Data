@@ -1,12 +1,18 @@
 # TODO: update the schema
 
-CREATE TABLE synthetic_requests (
-    id INTEGER NOT NULL AUTO_INCREMENT,
-    created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS synthetic_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_id INTEGER NOT NULL,
     task_type TEXT NOT NULL,
     prompt TEXT,
-    columns JSON NOT NULL,
+    columns TEXT NOT NULL,  -- JSON stored as TEXT in SQLite
     num_rows INTEGER NOT NULL,
-    PRIMARY KEY (id)
+    FOREIGN KEY (user_id) REFERENCES users (id)
 );
