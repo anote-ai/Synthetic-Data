@@ -15,53 +15,93 @@ os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
 os.makedirs(BASE_LABEL_DIR, exist_ok=True)
 
 # --- Video Generation ---
-def generate_video_data(prompt: str, index: int = 0):
-    headers = {
-        "Authorization": f"Token {REPLICATE_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
 
-    data = {
-        "version": MODEL_VERSION,
-        "input": {
-            "prompt": prompt,
-            "num_frames": 24,
-            "fps": 6,
-            "width": 576,
-            "height": 320
-        }
-    }
+import os
+import time
+import json
+import requests
 
-    response = requests.post("https://api.replicate.com/v1/predictions", headers=headers, data=json.dumps(data))
-    if response.status_code != 201:
-        raise Exception(f"❌ Failed to initiate generation: {response.text}")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") or "r8_TmFVTZiq3U6NgMonmd5eza9YYEdX7YC0FZh8i"
+MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
 
-    prediction = response.json()
-    poll_url = prediction["urls"]["get"]
-    status = prediction["status"]
+BASE_VIDEO_DIR = "server/sdk/examples/dataset/Video"
+BASE_LABEL_DIR = "server/sdk/examples/dataset/Video/labels"
+os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
+os.makedirs(BASE_LABEL_DIR, exist_ok=True)
 
-    print("⏳ Generating video...")
-    while status not in ["succeeded", "failed", "canceled"]:
-        time.sleep(10)
-        prediction = requests.get(poll_url, headers=headers).json()
-        status = prediction["status"]
+def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples: list = []) -> list:
+    results = []
 
-    if status != "succeeded":
-        raise Exception("❌ Video generation failed")
+    for i in range(num_rows):
+        try:
+            headers = {
+                "Authorization": f"Token {REPLICATE_API_TOKEN}",
+                "Content-Type": "application/json",
+            }
 
-    video_url = prediction["output"]
-    video_path = os.path.join(BASE_VIDEO_DIR, f"video_{index}.mp4")
-    label_path = os.path.join(BASE_LABEL_DIR, f"video_{index}.json")
+            data = {
+                "version": MODEL_VERSION,
+                "input": {
+                    "prompt": prompt,
+                    "num_frames": 24,
+                    "fps": 6,
+                    "width": 576,
+                    "height": 320
+                }
+            }
 
-    video_data = requests.get(video_url)
-    with open(video_path, "wb") as f:
-        f.write(video_data.content)
+            response = requests.post("https://api.replicate.com/v1/predictions", headers=headers, data=json.dumps(data))
+            if response.status_code != 201:
+                raise Exception(f"Failed to initiate generation: {response.text}")
 
-    with open(label_path, "w") as f:
-        json.dump({"prompt": prompt, "video_path": video_path, "annotations": []}, f, indent=2)
+            prediction = response.json()
+            poll_url = prediction["urls"]["get"]
+            status = prediction["status"]
 
-    print(f"✅ Video saved to {video_path}")
-    return video_path, label_path
+            print(f"⏳ [{i+1}/{num_rows}] Generating video...")
+
+            while status not in ["succeeded", "failed", "canceled"]:
+                time.sleep(10)
+                prediction = requests.get(poll_url, headers=headers).json()
+                status = prediction["status"]
+
+            if status != "succeeded":
+                raise Exception("Video generation failed")
+
+            video_url = prediction["output"]
+            video_path = os.path.join(BASE_VIDEO_DIR, f"video_{i}.mp4")
+            label_path = os.path.join(BASE_LABEL_DIR, f"video_{i}.json")
+
+            video_data = requests.get(video_url)
+            with open(video_path, "wb") as f:
+                f.write(video_data.content)
+
+            # Save initial label JSON
+            with open(label_path, "w") as f:
+                json.dump({
+                    "prompt": prompt,
+                    "video_path": video_path,
+                    "annotations": [],
+                    "summary_labels": []
+                }, f, indent=2)
+
+            results.append({
+                "video_path": video_path,
+                "video_url": video_url,
+                "label_path": label_path,
+                "prompt": prompt,
+                "columns": columns,
+                "status": "succeeded"
+            })
+
+        except Exception as e:
+            results.append({
+                "status": "failed",
+                "error": str(e),
+                "prompt": prompt
+            })
+
+    return results
 
 # --- Labeling UI ---
 def annotate_video(video_path, label_path):
@@ -119,5 +159,15 @@ def annotate_video(video_path, label_path):
 # --- Run Everything ---
 if __name__ == "__main__":
     prompt = "a cat riding a skateboard"
-    video_path, label_path = generate_video_data(prompt)
-    annotate_video(video_path, label_path)
+    columns = ["video_path", "prompt", "annotations"]
+
+    results = generate_video_data(prompt=prompt, columns=columns, num_rows=1)
+
+    for result in results:
+        if result["status"] == "succeeded":
+            video_path = result["video_path"]
+            label_path = result["label_path"]
+            annotate_video(video_path, label_path)
+        else:
+            print(f"⚠️ Skipping video due to failure: {result.get('error')}")
+
