@@ -5,7 +5,7 @@ import requests
 import cv2
 
 # --- Replicate API Setup ---
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") or "r8_TmFVTZiq3U6NgMonmd5eza9YYEdX7YC0FZh8i"
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
 
 # --- Directory Setup ---
