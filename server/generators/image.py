@@ -5,7 +5,7 @@ import os
 from ultralytics import YOLO
 
 openai.api_key = os.getenv("OPENAI_API_KEY") or "INSERT_YOUR_OPENAI_KEY"
-YOLO_MODEL_PATH = "yolo11n.pt"
+YOLO_MODEL_PATH = "INSERT"
 
 def generate_image_data(prompt: str, columns: list, num_rows: int = 1, examples: list = []) -> list:
     results = []

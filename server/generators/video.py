@@ -6,7 +6,7 @@ import cv2
 
 # --- Replicate API Setup ---
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
+MODEL_VERSION = "ADD_HERE"
 
 # --- Directory Setup ---
 BASE_VIDEO_DIR = "server/sdk/examples/dataset/Video"
