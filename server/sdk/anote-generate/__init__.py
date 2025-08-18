@@ -1,2 +1,2 @@
-from .core import Anote
+from .core import AnoteGenerate
 # from .constants import *
