@@ -23,3 +23,7 @@ tqdm==4.67.1
 typing-inspection==0.4.1
 typing_extensions==4.14.0
 tzdata==2025.2
+Flask==3.0.3
+Flask-Cors==4.0.0
+faker==25.8.0
+nest-asyncio==1.6.0
