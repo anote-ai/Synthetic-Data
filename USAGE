@@ -1,0 +1,133 @@
+# Synthetic Data Genenerate
+
+This guide shows how to run the backend API and the frontend app locally, generate data, and download results.
+
+## Prerequisites
+- macOS or Linux
+- Python 3.10+ (a virtualenv is recommended)
+- Node.js + npm (install with nvm if not already installed)
+
+### Install Node (if npm not found)
+```bash
+# Install nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+
+# Load nvm in the current shell
+export NVM_DIR="$HOME/.nvm"
+. "$NVM_DIR/nvm.sh"
+
+# Install and use LTS Node (includes npm)
+nvm install --lts
+nvm use --lts
+
+# Verify
+node -v
+npm -v
+```
+
+## Backend (Flask API)
+
+### 1) Create and activate Python virtualenv (first time)
+```bash
+python3 -m venv /Users/yao/Desktop/Anote-SyntheticData-main/.venv
+source /Users/yao/Desktop/Anote-SyntheticData-main/.venv/bin/activate
+pip install -r /Users/yao/Desktop/Anote-SyntheticData-main/server/requirements.txt
+```
+
+### 2) Start the API
+```bash
+# Ensure port 5000 is free (optional if you see 'Port 5000 is in use')
+lsof -i :5000 | awk 'NR>1 {print $2}' | xargs -r kill -9
+
+# Start backend
+source /Users/yao/Desktop/Anote-SyntheticData-main/.venv/bin/activate
+cd /Users/yao/Desktop/Anote-SyntheticData-main/server
+python app.py
+```
+- The API listens at `http://localhost:5000`.
+- CORS is enabled for `http://localhost:3000` (the frontend).
+
+### Optional: OpenAI key
+- Text generation uses OpenAI if an API key is provided.
+- You can pass the key per-request via the frontend API Key field (Authorization header) or set it in the shell:
+```bash
+export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+```
+- If no key is provided, Text uses a fast deterministic DRY_RUN fallback.
+
+## Frontend (React)
+
+### 1) Install dependencies and run
+```bash
+cd /Users/yao/Desktop/Anote-SyntheticData-main/frontend
+npm install
+npm start
+```
+- Open the app at `http://localhost:3000`.
+
+### 2) Using the Generate page
+Fields:
+- API Key (optional):
+  - Blank = offline Text sample generation
+  - Provided = OpenAI-backed Text generation
+- Task Type:
+  - `Text` (works)
+  - `PII` (works)
+  - `Image`/`Video`/`Audio`/`Agent` (not implemented server-side)
+- Prompt (for Text): comma-separated topics, e.g. `Cooking, History`
+- Number of Rows: how many rows to generate
+- Columns (comma separated):
+  - Text: `question,answer,question_augmented,answer_augmented,topic,reference_urls`
+  - PII: `text,entities,seed`
+- Examples: optional JSON array to send as `examples`
+
+Actions:
+- Click `Generate` to call the API and see results below
+- Use `Download JSON` or `Download CSV` to export the rows shown
+
+## API quick tests (curl)
+
+PII (no OpenAI key required):
+```bash
+curl -X POST http://localhost:5000/public/generate \
+  -H "Content-Type: application/json" \
+  -d '{"task_type":"pii","num_rows":2,"columns":["text","entities","seed"]}'
+```
+
+Text (DRY_RUN, no key):
+```bash
+curl -X POST http://localhost:5000/public/generate \
+  -H "Content-Type: application/json" \
+  -d '{"task_type":"text","prompt":"Cooking, History","num_rows":2,"columns":["question","answer","question_augmented","answer_augmented","topic","reference_urls"]}'
+```
+
+Text (OpenAI-backed):
+```bash
+# either set the env var in server shell
+# export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+# or pass a Bearer token header from your client
+curl -X POST http://localhost:5000/public/generate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_OPENAI_API_KEY" \
+  -d '{"task_type":"text","prompt":"Cooking, History","num_rows":2,"columns":["question","answer","question_augmented","answer_augmented","topic","reference_urls"]}'
+```
+
+## Troubleshooting
+
+- Port 5000 in use:
+```bash
+lsof -i :5000 | awk 'NR>1 {print $2}' | xargs -r kill -9
+```
+- npm not found:
+  - Install Node via nvm (see Prerequisites) and reload your shell:
+```bash
+export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use --lts
+```
+- Text returns nulls for certain columns:
+  - Ensure your Columns match the task type. For Text use: `question,answer,question_augmented,answer_augmented,topic,reference_urls`. For PII use: `text,entities,seed`.
+- Image/Video/Audio/Agent selections:
+  - Not implemented server-side in this project version; will error if selected.
+
+## Notes
+- Frontend downloads are client-side exports of the API response. Nested objects (e.g., PII `seed`) are JSON-serialized in CSV cells.
+- Backend logs and Flask debugger show errors in the terminal where you ran `python app.py`. 
