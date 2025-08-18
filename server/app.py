@@ -1,14 +1,15 @@
 from flask import Flask, request, jsonify
-from auth_utils import valid_api_key_required, extractUserEmailFromRequest, InvalidTokenError
+from flask_cors import CORS
 from api_endpoints.handler import GenerateHandler
 
 app = Flask(__name__)
+CORS(app, resources={r"/public/*": {"origins": "http://localhost:3000"}})
 
 @app.route('/public/generate', methods=['POST'])
-# @valid_api_key_required
 def generate():
-    try:
-        user_email = extractUserEmailFromRequest(request)
-    except InvalidTokenError:
-        return jsonify({"error": "Invalid JWT"}), 401
-    return GenerateHandler(request, user_email)
+	# For local dev, skip auth and use a placeholder user email
+	user_email = "local@dev"
+	return GenerateHandler(request, user_email)
+
+if __name__ == '__main__':
+	app.run(host='0.0.0.0', port=5000, debug=True)
