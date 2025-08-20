@@ -3,8 +3,8 @@ import json
 
 class AnoteGenerate:
     def __init__(self, api_key):
-        # self.API_BASE_URL = 'http://localhost:5000'
-        self.API_BASE_URL = "https://api.anote.ai"
+        self.API_BASE_URL = 'http://localhost:5000'
+        # self.API_BASE_URL = "https://api.anote.ai"
         self.headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'

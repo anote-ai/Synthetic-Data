@@ -1,12 +1,89 @@
-# TODO: add imports
-# schema of where we store API calls
+import json
+import sqlite3
+import os
 
-def store_generate_request(user_email, task_type, columns, prompt, num_rows):
-    conn, cursor = get_db_connection()
-    user_id = user_id_for_email(user_email)
-    cursor.execute(
-        'INSERT INTO synthetic_requests (user_id, task_type, prompt, columns, num_rows) VALUES (%s, %s, %s, %s, %s)',
-        [user_id, task_type, prompt, json.dumps(columns), num_rows]
-    )
+def init_database():
+    """Initialize database and create tables if they don't exist"""
+    db_path = os.path.join(os.path.dirname(__file__), 'anote_synthetic_data.db')
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Create tables if they don't exist
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS synthetic_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            task_type TEXT NOT NULL,
+            prompt TEXT,
+            columns JSON NOT NULL,
+            num_rows INTEGER NOT NULL
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS generated_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id INTEGER NOT NULL,
+            created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            data JSON NOT NULL,
+            FOREIGN KEY (request_id) REFERENCES synthetic_requests(id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
+
+def get_db_connection():
+    """Get database connection"""
+    db_path = os.path.join(os.path.dirname(__file__), 'anote_synthetic_data.db')
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn, conn.cursor()
+
+def store_generate_request(task_type, columns, prompt, num_rows):
+    """Store generation request in database and return the request ID"""
+    try:
+        conn, cursor = get_db_connection()
+        cursor.execute(
+            'INSERT INTO synthetic_requests (task_type, prompt, columns, num_rows) VALUES (?, ?, ?, ?)',
+            [task_type, prompt, json.dumps(columns), num_rows]
+        )
+        request_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return request_id
+    except Exception as e:
+        print(f"Database error: {e}")
+        return None
+
+def store_generated_data(request_id, data):
+    """Store generated data in database"""
+    try:
+        conn, cursor = get_db_connection()
+        cursor.execute(
+            'INSERT INTO generated_data (request_id, data) VALUES (?, ?)',
+            [request_id, json.dumps(data)]
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Database error storing generated data: {e}")
+        return False
+
+def get_generated_data(request_id):
+    """Retrieve generated data by request ID"""
+    try:
+        conn, cursor = get_db_connection()
+        cursor.execute(
+            'SELECT data FROM generated_data WHERE request_id = ?',
+            [request_id]
+        )
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            return json.loads(result['data'])
+        return None
+    except Exception as e:
+        print(f"Database error retrieving data: {e}")
+        return None
