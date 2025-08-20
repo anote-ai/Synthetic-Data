@@ -1,9 +1,12 @@
 from flask import Flask, request, jsonify
 from auth_utils import valid_api_key_required, extractUserEmailFromRequest, InvalidTokenError
 from api_endpoints.handler import GenerateHandler
-from database.db import get_db_connection
+from database.db import get_db_connection, init_database
 
 app = Flask(__name__)
+
+# Initialize database when app starts
+init_database()
 
 @app.route('/', methods=['GET'])
 def home():

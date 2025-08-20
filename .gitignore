@@ -4,6 +4,12 @@ venv/
 frontend/
 backend/
 
+# Development and test files
+check_database.py
+test_end_to_end.py
+simple_test.py
+view_database.py
+
 # Python cache files
 __pycache__/
 *.py[cod]

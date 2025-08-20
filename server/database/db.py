@@ -16,7 +16,8 @@ def init_database():
             task_type TEXT NOT NULL,
             prompt TEXT,
             columns JSON NOT NULL,
-            num_rows INTEGER NOT NULL
+            num_rows INTEGER NOT NULL,
+            user_id TEXT DEFAULT "test@example.com"
         )
     ''')
     
@@ -40,13 +41,25 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn, conn.cursor()
 
-def store_generate_request(task_type, columns, prompt, num_rows):
+def store_generate_request(task_type, columns, prompt, num_rows, user_email="test@example.com"):
     """Store generation request in database and return the request ID"""
     try:
         conn, cursor = get_db_connection()
+        
+        # Check if user_id column exists, if not add it
+        cursor.execute("PRAGMA table_info(synthetic_requests)")
+        columns_info = cursor.fetchall()
+        column_names = [col[1] for col in columns_info]
+        
+        if 'user_id' not in column_names:
+            # Add user_id column if it doesn't exist
+            cursor.execute('ALTER TABLE synthetic_requests ADD COLUMN user_id TEXT DEFAULT "test@example.com"')
+            print("Added user_id column to synthetic_requests table")
+        
+        # Insert the request
         cursor.execute(
-            'INSERT INTO synthetic_requests (task_type, prompt, columns, num_rows) VALUES (?, ?, ?, ?)',
-            [task_type, prompt, json.dumps(columns), num_rows]
+            'INSERT INTO synthetic_requests (task_type, prompt, columns, num_rows, user_id) VALUES (?, ?, ?, ?, ?)',
+            [task_type, prompt, json.dumps(columns), num_rows, user_email]
         )
         request_id = cursor.lastrowid
         conn.commit()

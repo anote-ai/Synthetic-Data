@@ -15,7 +15,7 @@ def GenerateHandler(request, user_email):
     examples = data.get("examples", [])
 
     # Store the request and get the request ID
-    request_id = store_generate_request(task_type, columns, prompt, num_rows)
+    request_id = store_generate_request(task_type, columns, prompt, num_rows, user_email)
 
     if task_type == "text":
         generated = generate_text_data(prompt, num_rows, columns)
