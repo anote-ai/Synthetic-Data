@@ -1,10 +1,18 @@
 import requests
 import json
+import os
 
 class AnoteGenerate:
-    def __init__(self, api_key):
-        self.API_BASE_URL = 'http://localhost:5000'
-        # self.API_BASE_URL = "https://api.anote.ai"
+    def __init__(self, api_key, base_url=None):
+        # Use provided base_url, environment variable, or default to production
+        if base_url:
+            self.API_BASE_URL = base_url
+        elif os.getenv('ANOTE_API_BASE_URL'):
+            self.API_BASE_URL = os.getenv('ANOTE_API_BASE_URL')
+        else:
+            # Default to production URL
+            self.API_BASE_URL = "https://api.anote.ai"
+        
         self.headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'

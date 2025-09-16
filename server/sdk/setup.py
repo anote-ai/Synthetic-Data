@@ -2,12 +2,14 @@ from setuptools import setup, find_packages
 
 # Function to read the requirements.txt file
 def read_requirements():
-    with open('/Users/natanvidra/Workspace/Anote-SyntheticData/server/requirements.txt') as f:
+    import os
+    requirements_path = os.path.join(os.path.dirname(__file__), '..', 'requirements.txt')
+    with open(requirements_path) as f:
         return f.read().splitlines()
 
 setup(
     name='anote-generate',
-    version='0.20',
+    version='0.03',
     packages=find_packages(),
     install_requires=read_requirements(),
     description='An SDK for generating synthetic data with the Anote API',
