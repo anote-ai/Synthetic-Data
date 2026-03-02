@@ -1,0 +1,46 @@
+# Environment and secrets
+.env
+.env.*
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Test and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Git
+.git/
+.gitignore
+
+# OS and IDE
+.DS_Store
+*.swp
+*.swo
+
+# Local database (use fresh or mount volume at runtime)
+*.db
+
+# Dev/test scripts (not needed to run the app)
+simple_test.py
+check_database.py
+test_end_to_end.py
+view_database.py

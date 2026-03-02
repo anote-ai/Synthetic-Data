@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from auth_utils import valid_api_key_required, extractUserEmailFromRequest, InvalidTokenError
 from api_endpoints.handler import GenerateHandler
 from database.db import get_db_connection, init_database
 
 app = Flask(__name__)
+CORS(app)
 
 # Initialize database when app starts
 init_database()
