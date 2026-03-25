@@ -1,6 +1,4 @@
 import sys
-import subprocess
-import importlib.util
 import os
 import json
 import random
@@ -8,79 +6,23 @@ import string
 import re
 import asyncio
 
-# Ensure dependencies
-REQUIRED = ["faker", "openai", "tqdm", "nest_asyncio"]
-for pkg in REQUIRED:
-    if importlib.util.find_spec(pkg) is None:
-        subprocess.run([sys.executable, "-m", "pip", "install", "-q", pkg])
-
 from faker import Faker
 from tqdm.auto import tqdm
 import nest_asyncio; nest_asyncio.apply()
 from openai import AsyncOpenAI
+from dotenv import load_dotenv
 
+load_dotenv()
 
 WORD_MIN, WORD_MAX = 40, 120
 MODEL = "gpt-4o-mini"
 TEMP = 0.9
-CONCURRENCY = 5  
+CONCURRENCY = 5
 DRY_RUN = False
 
-def ask_int(prompt_text, default):
-    while True:
-        resp = input(f"{prompt_text} [{default}]: ").strip()
-        if resp == "":
-            return default
-        if resp.isdigit() and int(resp) > 0:
-            return int(resp)
-        print("Please enter a positive integer.")
-
-def ask_float(prompt_text, default):
-    while True:
-        resp = input(f"{prompt_text} [{default}]: ").strip()
-        if resp == "":
-            return default
-        try:
-            v = float(resp)
-            if 0.0 <= v <= 1.0:
-                return v
-        except:
-            pass
-        print("Please enter a number between 0.0 and 1.0.")
-
-def ask_yesno(prompt_text, default=True):
-    default_str = "Y/n" if default else "y/N"
-    while True:
-        resp = input(f"{prompt_text} ({default_str}): ").strip().lower()
-        if resp == "":
-            return default
-        if resp in ("y", "yes"):
-            return True
-        if resp in ("n", "no"):
-            return False
-        print("Please answer yes or no.")
-
-def load_api_key():
-    key = os.environ.get("OPENAI_API_KEY")
-    if key:
-        return key.strip()
-    fallback_path = os.path.expanduser("~/.openai_key")
-    if os.path.isfile(fallback_path):
-        try:
-            with open(fallback_path, "r", encoding="utf-8") as f:
-                k = f.read().strip()
-                if k:
-                    return k
-        except Exception:
-            pass
-    return None
-
-OPENAI_KEY = load_api_key()
-if not OPENAI_KEY:
-    print("No Key")
-    DRY_RUN = True
-else:
-    os.environ.setdefault("OPENAI_API_KEY", OPENAI_KEY)
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key and not DRY_RUN:
+    raise RuntimeError("OPENAI_API_KEY environment variable is not set")
 
 client = AsyncOpenAI() if not DRY_RUN else None
 
@@ -274,8 +216,8 @@ async def maybe_preview():
     print("\nGenerated Text:\n", example["text"])
     print("\nSeed values:", example["seed"])
     print("\nEntities:", example["entities"])
-    proceed = ask_yesno("Proceed with full generation?", True)
-    if not proceed:
+    proceed = input("Proceed with full generation? (Y/n): ").strip().lower()
+    if proceed in ("n", "no"):
         print("Aborted by user.")
         sys.exit(0)
 
@@ -288,15 +230,28 @@ def generate_PII_data_sync(prompt, columns, num_rows, examples):
 
     return asyncio.run(generate_text_data(prompt, columns, num_rows, examples))
 
+
+def generate_pii_data(prompt, columns, num_rows, examples=None, params=None):
+    """Wrapper matching the standard generator contract."""
+    return generate_PII_data_sync(prompt=prompt, columns=columns, num_rows=num_rows, examples=examples or [])
+
+
 # Main entry (interactive)
 if __name__ == "__main__":
     print("Synthetic PII Text Generator Interactive")
-    N_ROWS = ask_int("How many synthetic PII examples to generate?", 100)
-    CONCURRENCY = ask_int("Maximum concurrent requests?", 10)
+    _n = input("How many synthetic PII examples to generate? [100]: ").strip()
+    N_ROWS = int(_n) if _n.isdigit() and int(_n) > 0 else 100
+    _c = input("Maximum concurrent requests? [10]: ").strip()
+    CONCURRENCY = int(_c) if _c.isdigit() and int(_c) > 0 else 10
     WORD_MIN, WORD_MAX = 40, 120
     MODEL = "gpt-4o-mini"
-    TEMP = ask_float("Temperature (0.0–1.0)?", 0.9)
-    PREVIEW = ask_yesno("Would you like to preview one example before full generation?", True)
+    _t = input("Temperature (0.0–1.0)? [0.9]: ").strip()
+    try:
+        TEMP = float(_t) if _t and 0.0 <= float(_t) <= 1.0 else 0.9
+    except ValueError:
+        TEMP = 0.9
+    _p = input("Would you like to preview one example before full generation? (Y/n): ").strip().lower()
+    PREVIEW = _p not in ("n", "no")
 
     async def main():
         if PREVIEW:
