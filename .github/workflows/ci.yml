@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('server/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          cd server
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-mock pytest-asyncio pytest-cov
+
+      - name: Run tests
+        env:
+          OPENAI_API_KEY: "test-key-not-real"
+          REPLICATE_API_TOKEN: "test-token-not-real"
+          SYNTHETIC_OUTPUT_DIR: "/tmp/synthetic-test-output"
+        run: |
+          cd server
+          pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-fail-under=60
+
+      - name: Lint with ruff
+        run: |
+          pip install ruff
+          cd server
+          ruff check . --ignore E501,F401 || true
