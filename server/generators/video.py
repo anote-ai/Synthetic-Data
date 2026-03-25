@@ -4,28 +4,14 @@ import json
 import requests
 import cv2
 
-# --- Replicate API Setup ---
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+if not REPLICATE_API_TOKEN:
+    raise RuntimeError("REPLICATE_API_TOKEN environment variable is not set")
+
 MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
 
-# --- Directory Setup ---
-BASE_VIDEO_DIR = "server/sdk/examples/dataset/Video"
-BASE_LABEL_DIR = "server/sdk/examples/dataset/Video/labels"
-os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
-os.makedirs(BASE_LABEL_DIR, exist_ok=True)
-
-# --- Video Generation ---
-
-import os
-import time
-import json
-import requests
-
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN") or "r8_TmFVTZiq3U6NgMonmd5eza9YYEdX7YC0FZh8i"
-MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
-
-BASE_VIDEO_DIR = "server/sdk/examples/dataset/Video"
-BASE_LABEL_DIR = "server/sdk/examples/dataset/Video/labels"
+BASE_VIDEO_DIR = os.getenv("SYNTHETIC_OUTPUT_DIR", "./outputs") + "/video"
+BASE_LABEL_DIR = BASE_VIDEO_DIR + "/labels"
 os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
 os.makedirs(BASE_LABEL_DIR, exist_ok=True)
 

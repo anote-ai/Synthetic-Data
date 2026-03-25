@@ -4,7 +4,9 @@ import requests
 import os
 from ultralytics import YOLO
 
-openai.api_key = os.getenv("OPENAI_API_KEY") or "INSERT_YOUR_OPENAI_KEY"
+openai.api_key = os.getenv("OPENAI_API_KEY")
+if not openai.api_key:
+    raise RuntimeError("OPENAI_API_KEY environment variable is not set")
 YOLO_MODEL_PATH = "yolo11n.pt"
 
 def generate_image_data(prompt: str, columns: list, num_rows: int = 1, examples: list = []) -> list:
