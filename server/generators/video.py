@@ -29,7 +29,7 @@ BASE_LABEL_DIR = "server/sdk/examples/dataset/Video/labels"
 os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
 os.makedirs(BASE_LABEL_DIR, exist_ok=True)
 
-def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples: list = []) -> list:
+def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples: list = [], params=None) -> list:
     results = []
 
     for i in range(num_rows):

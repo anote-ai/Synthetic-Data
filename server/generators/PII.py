@@ -288,6 +288,9 @@ def generate_PII_data_sync(prompt, columns, num_rows, examples):
 
     return asyncio.run(generate_text_data(prompt, columns, num_rows, examples))
 
+def generate_pii_data(prompt, columns, num_rows, examples, params=None):
+    return generate_PII_data_sync(prompt, columns, num_rows, examples)
+
 # Main entry (interactive)
 if __name__ == "__main__":
     print("Synthetic PII Text Generator Interactive")

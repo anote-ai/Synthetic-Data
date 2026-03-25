@@ -24,7 +24,7 @@ def analyze_audio(audio_path):
 
     return results
 
-def generate_audio_data(prompt: str, columns: list, num_rows: int = 1, examples: list = []) -> list:
+def generate_audio_data(prompt: str, columns: list, num_rows: int = 1, examples: list = [], params=None) -> list:
     results = []
 
     for i in range(num_rows):
