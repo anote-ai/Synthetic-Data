@@ -1,0 +1,10 @@
+# Development overrides — hot reload, debug mode
+# Usage: docker compose up (automatically applied)
+services:
+  api:
+    volumes:
+      - ./server:/app
+    environment:
+      - FLASK_DEBUG=true
+      - LOG_LEVEL=DEBUG
+    command: ["python", "app.py"]

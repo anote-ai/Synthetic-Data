@@ -1,230 +1,290 @@
-# SyntheticDataGen — API & Project Overview
+# Anote Synthetic Data
 
-**Driving Frontier AI with Expert Data**
-SyntheticDataGen is Anote’s SDK + API for programmatic dataset **generation, curation, labeling, and evaluation** across **text, images, video, audio, and agent traces**. It provides a single `generate(...)` interface, modality-specific generators, built-in quality checks, and evaluation hooks so teams can go from **prompt → validated data → benchmark-ready splits** with minimal glue code.
+[![CI](https://github.com/anote-ai/Synthetic-Data/actions/workflows/ci.yml/badge.svg)](https://github.com/anote-ai/Synthetic-Data/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/anote-generate)](https://pypi.org/project/anote-generate/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-
-## Resources
-
-- **Datasets & Services:** https://anote.ai/syntheticdata
-- **Anote API docs (patterns to mirror):** https://docs.anote.ai/api-anote/predict.html
-
-## Presentations:
-Synthetic Data Launch:
-https://www.youtube.com/watch?v=Qj653H5hvIw
-
-Synthetic Data and Natural Language Processing - Ishaana Rao
-https://www.youtube.com/watch?v=5SpeMMJMiyk
-
-Synthetic Data Generation (Training Dataset Curation) - Zexun Yao
-https://www.youtube.com/watch?v=nuvZHkuKWgQ
-
-Synthetic Data Generation (API) - Saumya Singh
-https://www.youtube.com/watch?v=v2OSiva-s0c
+A multi-modal synthetic dataset generation platform. Generate text, image, audio, video, agent traces, and PII datasets through a unified REST API and Python SDK.
 
 ---
 
-## Why Synthetic Datasets (Train & Eval) Matter
+## Quick Start
 
-- **Coverage & Scale.** Real-world data is sparse on edge cases; synthetic data fills long-tail gaps and supports rapid iteration at scale.
-- **Speed to Insight.** New tasks/models need prototypes **now** (hours/days), not weeks of collection and labeling.
-- **Controlled Difficulty.** Dial task difficulty, domain shift, noise, and adversarial patterns to stress-test models.
-- **Privacy & Compliance.** Generate PII-safe surrogates or redact/templated records to avoid handling sensitive source data.
-- **Reproducibility.** Seeds + manifests make experiments repeatable and auditable for research and regulated settings.
-
-### Training vs Evaluation
-- **Training sets** teach skills (breadth & diversity).
-- **Evaluation sets** independently measure progress (held-out, well-specified, stable).
-SyntheticDataGen supports both, plus **stress tests** (robustness, bias, safety) and **leaderboard submissions**.
-
----
-
-## Today’s Manual Curation Workflow (Typical) — and Pain Points
-
-1. Define task, schema, and label space
-2. Gather raw data (scrape, export, purchase)
-3. Draft labeling guide; train annotators
-4. Label in tools; export; fix schema mismatches
-5. QA passes (spot-check, inter-annotator agreement)
-6. Dedupe, split, document, version, and store
-7. Run baselines; realize you need **more edge cases** → loop back
-
-**Pain points:** slow/expensive, inconsistent quality, drift across versions, weak long-tail coverage, privacy constraints, and poor reproducibility.
-
-**SyntheticDataGen** automates most steps: **programmatic generation**, **schema-aware QA**, **LLM review**, **benchmark hooks**, and **versioned artifacts**.
-
----
-
-## Supported Task Types (by Modality)
-
-**Text**
-- **Classification:** e.g., Amazon review sentiment (positive/negative/neutral)
-- **NER:** e.g., PII tagging with labeled entities
-- **Chatbot:** e.g., Japanese conversational pairs for assistants
-- **Prompting/IE:** e.g., extract structured fields from 10-K filings
-
-**Images**
-- **Object Detection:** e.g., undersea imagery with bounding boxes
-- **Image Generation:** prompts → synthetic images for diffusion/GenAI
-
-**Video**
-- **Video–Prompt Pairs:** `.mp4` clips + JSON metadata for Veo/Sora-style models
-
-**Audio**
-- **TTS/ASR Data:** `.wav` + transcripts, speaker/noise profiles
-
-**Agents**
-- **Agent Traces:** sequences of tool calls, actions, observations, rewards (browser/OS/multi-agent)
-
----
-
-## Where to Find Datasets
-
-Explore curated and sample datasets on the Anote site:
-**https://anote.ai/syntheticdata**
-
-You’ll find task cards, example artifacts, and links to request bespoke datasets.
-
----
-
-## Repository Layout (reference)
-
-```
-anote-generate/
-├─ setup.py                      # package: anote-generate
-├─ requirements.txt
-├─ anotegenerate/
-│  ├─ __init__.py
-│  ├─ core.py                    # exposes generate(...)
-│  └─ Generators/
-│     ├─ text.py | image.py | video.py | audio.py | agents.py
-├─ api_endpoints/handler.py      # Flask routes (POST /generate)
-├─ app.py                        # Flask entrypoint
-├─ db.py                         # DB connections/queries
-├─ schema.sql                    # jobs, artifacts, rows, metrics
-├─ examples/
-│  ├─ examples_data/             # CSV/JSON + media
-│  ├─ text.py | image.py | video.py | audio.py | agents.py
-└─ docs/
-   ├─ markdown.md                # API usage, IO fields, params
-   └─ synthetic/example1.md      # worked example
-```
-
----
-
-## Install & Run
+### Option 1 — Docker (recommended)
 
 ```bash
-# clone your repo (example)
-git clone repo
+git clone https://github.com/anote-ai/Synthetic-Data.git
+cd Synthetic-Data
 
-# install
-pip install -r requirements.txt
-pip install -e .
+# Configure environment
+cp .env.example .env
+# Edit .env and add your OPENAI_API_KEY and REPLICATE_API_TOKEN
 
-# credentials (as needed)
-export SYNTHETIC_DATA_API_KEY="your_api_key"
-export OPENAI_API_KEY="your_openai_key"
+# Start all services
+make docker-up
 
-# optional: local YOLO server for image tasks
-export YOLO_SERVER_URL="http://localhost:5001"
-
-# run API
-python app.py
+# API is running at http://localhost:5000
+# Frontend is running at http://localhost:3000
 ```
 
----
+### Option 2 — Local
 
-## API Reference
+```bash
+git clone https://github.com/anote-ai/Synthetic-Data.git
+cd Synthetic-Data
 
-### `POST /generate`
+cp .env.example .env
+# Edit .env with your API keys
 
-**Request (JSON)**
-```json
-{
-  "task_type": "text",
-  "prompt": "Amazon movie review sentiment dataset",
-  "num_rows": 500,
-  "columns": ["text", "label"],
-  "examples": [
-    {"text": "I loved the cinematography.", "label": "positive"},
-    {"text": "It dragged on and on.", "label": "negative"}
-  ],
-  "params": {
-    "label_set": ["positive", "negative", "neutral"],
-    "languages": ["en"],
-    "domain": "movies"
-  },
-  "output_format": "csv",
-  "media_dir": "examples/examples_data",
-  "seed": 42
-}
+make install
+make dev           # Flask API on :5000
+make frontend      # React UI on :3000 (separate terminal)
 ```
-
-**Response**
-```json
-{
-  "job_id": "gen_01H8YX...",
-  "artifact": {
-    "table_path": "examples/examples_data/reviews.csv",
-    "media_manifest": null
-  },
-  "summary": {
-    "rows": 500,
-    "modality": "text",
-    "quality_checks": ["heuristic", "llm_review", "benchmark_compare"]
-  }
-}
-```
-
-**Common Fields**
-- `task_type`: `"text" | "image" | "video" | "audio" | "agents"`
-- `prompt`: Natural language spec for generation
-- `num_rows`: Number of rows/samples to generate
-- `columns`: Output schema fields (e.g., `["text","label"]`)
-- `examples`: Few-shot examples to steer outputs
-- `params`: Modality-specific options
-- `output_format`: `"csv" | "json" | "parquet"`
-- `media_dir`: Where to write `.png/.mp4/.wav` and manifests
-- `seed`: Integer for reproducibility
 
 ---
 
 ## Python SDK
 
-```python
-from anotegenerate import generate
+```bash
+pip install anote-generate
+```
 
-result = generate(
+```python
+from anote_generate import Anote
+
+client = Anote(api_key="your-key")
+
+# Generate text data
+rows = client.generate(
     task_type="text",
-    prompt="Amazon movie review sentiment dataset",
-    num_rows=500,
-    columns=["text", "label"],
-    examples=[
-        {"text": "I loved the cinematography.", "label": "positive"},
-        {"text": "It dragged on and on.", "label": "negative"},
-    ],
-    params={"label_set": ["positive", "negative", "neutral"], "languages": ["en"]},
-    output_format="csv",
-    media_dir="examples/examples_data",
-    seed=42
+    columns=["question", "answer", "difficulty"],
+    prompt="Generate Q&A pairs about Python programming",
+    num_rows=10,
+    examples=[{"question": "What is a list?", "answer": "An ordered collection", "difficulty": "easy"}],
 )
 
-print("Dataset at:", result.path)
+# Save to file
+client.to_file(rows, "dataset.csv")      # CSV
+client.to_file(rows, "dataset.jsonl")    # JSONL (fine-tuning format)
+
+# Convert to DataFrame
+df = client.to_dataframe(rows)
 ```
 
 ---
 
-## Quality Assurance & Evaluation
+## Supported Modalities
 
-**Multi-layer QA**
-1. **Heuristics:** schema/label checks, length, dedupe, leakage guards
-2. **AI Review:** LLM spot-checks for label consistency, red flags
-3. **Refinement:** regenerate failures with controlled variation
-4. **Benchmark Compare:** run quick baselines to gauge dataset utility
+| `task_type` | Description | External API |
+|-------------|-------------|--------------|
+| `text` | Structured text with any columns | OpenAI GPT-4o-mini |
+| `image` | DALL-E 3 images with YOLO object detection | OpenAI DALL-E 3 |
+| `audio` | TTS audio with Whisper transcription | OpenAI TTS + Whisper |
+| `video` | Video clips with optional GPT-4o frame annotations | Replicate API |
+| `agent` | Multi-turn agent traces with tool calls | OpenAI GPT-4o-mini |
+| `pii` | Synthetic PII records (14 types) | OpenAI GPT-4o-mini |
+| `tabular` | Typed tabular data with relational integrity | OpenAI GPT-4o-mini |
+| `code` | Code functions, tests, docstrings, bug fixes | OpenAI GPT-4o-mini |
 
-**Artifacts**
-- **Tables:** CSV/JSON/Parquet with splits + metadata
-- **Media:** images/video/audio linked via manifest
-- **Manifests:** map row IDs ↔ files
-- **Metrics:** stored per job in `metrics` table
+---
+
+## API Reference
+
+### POST /public/generate
+
+**Request:**
+```json
+{
+  "task_type": "text",
+  "prompt": "Generate product reviews for a coffee maker",
+  "num_rows": 5,
+  "columns": ["review_text", "sentiment", "rating"],
+  "examples": [{"review_text": "Great!", "sentiment": "positive", "rating": "5"}],
+  "params": {}
+}
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {"review_text": "Best coffee ever!", "sentiment": "positive", "rating": "5", "status": "succeeded"},
+    {"review_text": "Not worth it.", "sentiment": "negative", "rating": "2", "status": "succeeded"}
+  ]
+}
+```
+
+**Auth:** `Authorization: Bearer <token>`
+
+### POST /public/generate/export
+
+Same as `/public/generate` plus:
+- `"format"`: `"csv"` | `"jsonl"` | `"parquet"` | `"json"` (default: `"json"`)
+- `"filename"`: output filename without extension
+
+Returns a file download.
+
+### GET /health
+
+```json
+{"status": "ok", "version": "1.0.0"}
+```
+
+---
+
+## Modality Parameters
+
+### Text
+```json
+{"params": {"model": "gpt-4o-mini", "batch_size": 10}}
+```
+
+### Image
+```json
+{"params": {"image_size": "1024x1024", "style": "vivid", "run_detection": true, "detection_confidence": 0.25}}
+```
+
+### Audio
+```json
+{"params": {"voice": "nova", "tts_model": "tts-1", "speed": 1.0, "language": "en"}}
+```
+
+### Video
+```json
+{"params": {"fps": 6, "width": 576, "height": 320, "annotate_frames": false, "num_keyframes": 5}}
+```
+
+### Agent
+```json
+{
+  "params": {
+    "scenario": "Customer support for SaaS billing",
+    "difficulty": "medium",
+    "tools": [
+      {"name": "lookup_account", "description": "Look up account by email", "parameters": {"email": "string"}}
+    ],
+    "outcome_distribution": {"success": 0.7, "failure": 0.2, "partial": 0.1}
+  }
+}
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes | — | OpenAI API key for text, image, audio, PII generation |
+| `REPLICATE_API_TOKEN` | Yes (video only) | — | Replicate API token for video generation |
+| `SECRET_KEY` | Yes (production) | `dev-secret` | Flask JWT secret key |
+| `ALLOWED_ORIGINS` | No | `http://localhost:3000` | CORS allowed origins (comma-separated) |
+| `SYNTHETIC_OUTPUT_DIR` | No | `./outputs` | Directory for generated files |
+| `MAX_ROWS_PER_REQUEST` | No | `100` | Max rows per API request |
+| `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG/INFO/WARNING/ERROR) |
+| `PORT` | No | `5000` | Flask server port |
+| `DB_HOST` | No | — | MySQL host (omit to disable DB logging) |
+| `DB_PORT` | No | `3306` | MySQL port |
+| `DB_USER` | No | — | MySQL user |
+| `DB_PASSWORD` | No | — | MySQL password |
+| `DB_NAME` | No | — | MySQL database name |
+
+---
+
+## Repository Structure
+
+```
+Synthetic-Data/
+├── server/
+│   ├── app.py                    # Flask entrypoint
+│   ├── auth_utils.py             # JWT authentication
+│   ├── validators.py             # Pydantic request validation
+│   ├── logging_config.py         # Structured JSON logging
+│   ├── requirements.txt
+│   ├── api_endpoints/
+│   │   └── handler.py            # Routes task_type → generator
+│   ├── database/
+│   │   ├── db.py                 # MySQL connection pool + helpers
+│   │   └── schema.sql            # Table definitions
+│   ├── generators/               # One file per modality
+│   │   ├── text.py               # GPT-4o-mini async generation
+│   │   ├── image.py              # DALL-E 3 + YOLO11
+│   │   ├── audio.py              # TTS + Whisper pipeline
+│   │   ├── video.py              # Replicate async polling
+│   │   ├── agent.py              # Multi-turn tool-use traces
+│   │   ├── PII.py                # 14 PII types via Faker + LLM
+│   │   └── Language.py           # Wikipedia Q&A
+│   ├── utils/
+│   │   └── export.py             # CSV/JSONL/Parquet export
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   ├── test_generate.py
+│   │   └── test_examples.py
+│   └── sdk/                      # PyPI package: anote-generate
+│       ├── pyproject.toml
+│       ├── README.md
+│       └── anote_generate/
+│           ├── __init__.py
+│           └── core.py
+├── frontend/
+│   ├── package.json
+│   └── src/
+│       └── App.js                # React UI
+├── docker-compose.yml
+├── server/Dockerfile
+├── frontend/Dockerfile
+├── Makefile
+├── .env.example
+└── README.md
+```
+
+---
+
+## Development
+
+```bash
+# Run tests
+make test
+
+# Run with coverage
+make test-cov
+
+# Lint
+make lint
+
+# Docker commands
+make docker-up        # Start all services
+make docker-logs      # Follow API logs
+make docker-down      # Stop all services
+```
+
+---
+
+## Troubleshooting
+
+**`ImportError: No module named 'auth_utils'`**
+→ Make sure you're running from the `server/` directory: `cd server && python app.py`
+
+**CORS error in browser**
+→ Set `ALLOWED_ORIGINS=http://localhost:3000` in `.env`
+
+**`RuntimeError: OPENAI_API_KEY environment variable is not set`**
+→ Add your key to `.env`: `OPENAI_API_KEY=sk-...`
+
+**YOLO model not found**
+→ Download the model: `cd server && python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"`
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make changes and add tests
+4. Run `make test` — all tests must pass
+5. Submit a PR targeting `main`
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE)
