@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "anote-generate"
+version = "1.0.0"
+description = "Python SDK for the Anote Synthetic Data API — generate text, image, audio, video, agent, and PII datasets"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Anote AI", email = "support@anote.ai"}
+]
+keywords = ["synthetic-data", "llm", "ai", "dataset", "generation", "text", "image", "audio", "video"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31,<3",
+    "httpx>=0.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-mock>=3",
+    "responses>=0.25",
+]
+async = [
+    "httpx>=0.24",
+]
+
+[project.urls]
+Homepage = "https://anote.ai"
+Documentation = "https://docs.anote.ai"
+Repository = "https://github.com/anote-ai/Synthetic-Data"
+"Bug Tracker" = "https://github.com/anote-ai/Synthetic-Data/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["anote_generate*"]
+
+[tool.setuptools.package-data]
+anote_generate = ["py.typed"]
