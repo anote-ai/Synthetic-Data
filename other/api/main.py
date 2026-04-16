@@ -1,3 +1,7 @@
+# DEPRECATED: This FastAPI prototype is no longer maintained.
+# The canonical API is the Flask app in server/. See README.md for setup.
+# Kept for historical reference only — do not use in production.
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
