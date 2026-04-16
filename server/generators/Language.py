@@ -4,16 +4,13 @@ import openai
 import time
 from difflib import get_close_matches
 from tqdm import tqdm
-from google.colab import files
+from dotenv import load_dotenv
 
-os.environ["OPENAI_API_KEY"] = "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"  # for ephemeral testing only; avoid committing
-openai.api_key = os.getenv("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")
+load_dotenv()
 
-
-openai.api_key = "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"  # <--- insert your OpenAI API key here
-
+openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
-    raise RuntimeError("OpenAI API key not found.")
+    raise RuntimeError("OPENAI_API_KEY environment variable is not set")
 
 
 qa_generator_model = "gpt-4o-mini"
