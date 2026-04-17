@@ -31,3 +31,5 @@ typing-inspection==0.4.1
 typing_extensions==4.14.0
 tzdata==2025.2
 nest_asyncio==1.6.0
+rq>=1.16.0
+redis>=5.0.0

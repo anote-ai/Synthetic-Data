@@ -247,6 +247,79 @@ class Anote:
 
         return str(p.resolve())
 
+    def generate_async(
+        self,
+        task_type: str,
+        columns: List[str],
+        prompt: str,
+        num_rows: int = 5,
+        examples: Optional[List[dict]] = None,
+        params: Optional[dict] = None,
+        webhook_url: Optional[str] = None,
+    ) -> "Job":
+        """
+        Submit a generation job and return immediately with a Job handle.
+
+        Use job.wait() to poll until completion.
+
+        Example::
+
+            job = client.generate_async(task_type="video", columns=["video_url"], prompt="...", num_rows=3)
+            rows = job.wait()
+        """
+        body = {
+            "task_type": task_type,
+            "columns": columns,
+            "prompt": prompt,
+            "num_rows": num_rows,
+            "examples": examples or [],
+            "params": params or {},
+        }
+        if webhook_url:
+            body["webhook_url"] = webhook_url
+        resp = self._request("POST", "/public/generate/async", json=body)
+        return Job(resp["job_id"], client=self)
+
+    def _get_job(self, job_id: str) -> dict:
+        return self._request("GET", f"/public/jobs/{job_id}")
+
+    def _cancel_job(self, job_id: str) -> dict:
+        return self._request("DELETE", f"/public/jobs/{job_id}")
+
+
+class Job:
+    """Handle for an async generation job."""
+
+    def __init__(self, job_id: str, client: "Anote"):
+        self.job_id = job_id
+        self._client = client
+        self._data: Optional[dict] = None
+
+    @property
+    def status(self) -> str:
+        self._data = self._client._get_job(self.job_id)
+        return self._data.get("status", "unknown")
+
+    def wait(self, poll_interval: float = 5.0, timeout: float = 1800.0) -> List[dict]:
+        """Poll until job completes. Returns list of result rows."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self._data = self._client._get_job(self.job_id)
+            s = self._data.get("status")
+            if s == "succeeded":
+                return self._data.get("result") or []
+            if s in ("failed", "canceled"):
+                raise RuntimeError(f"Job {self.job_id} {s}: {self._data.get('error')}")
+            time.sleep(poll_interval)
+        raise TimeoutError(f"Job {self.job_id} did not complete within {timeout}s")
+
+    def cancel(self) -> dict:
+        self._data = self._client._cancel_job(self.job_id)
+        return self._data
+
+    def __repr__(self) -> str:
+        return f"Job(job_id={self.job_id!r}, status={self._data.get('status', '?') if self._data else '?'})"
+
 
 def _get_version() -> str:
     try:
