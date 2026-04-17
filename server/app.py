@@ -86,7 +86,53 @@ def generate():
     if errors:
         return jsonify({"error": "Validation failed", "details": errors}), 422
 
-    return GenerateHandler(request, user_email)
+    result = GenerateHandler(request, user_email)
+
+    # Save version snapshot (non-fatal if it fails)
+    try:
+        from utils.versioning import save_version
+        generated_data = result.get_json().get("data", [])
+        version_id = save_version(
+            user_email=user_email,
+            task_type=body.get("task_type"),
+            prompt=body.get("prompt", ""),
+            columns=body.get("columns", []),
+            params=body.get("params", {}),
+            result_data=generated_data,
+            num_rows=body.get("num_rows", 5),
+        )
+        payload = result.get_json()
+        payload["version_id"] = version_id
+        return jsonify(payload)
+    except Exception as e:
+        logger.warning("Versioning failed (non-fatal): %s", e)
+        return result
+
+
+@app.route("/public/generate/versions", methods=["GET"])
+def list_versions():
+    try:
+        user_email = extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    limit = min(int(request.args.get("limit", 20)), 100)
+    from utils.versioning import list_versions as _list
+    return jsonify({"versions": _list(user_email, limit)})
+
+
+@app.route("/public/generate/versions/<version_id>", methods=["GET"])
+def get_version(version_id):
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    from utils.versioning import get_version as _get
+    record = _get(version_id)
+    if record is None:
+        return jsonify({"error": f"Version '{version_id}' not found"}), 404
+    return jsonify(record)
 
 
 @app.route("/public/generate/export", methods=["POST"])
