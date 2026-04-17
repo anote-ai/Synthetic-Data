@@ -4,6 +4,7 @@ import time
 import uuid
 
 from flask import Flask, request, jsonify, g
+from flask_cors import CORS
 from auth_utils import valid_api_key_required, extractUserEmailFromRequest, InvalidTokenError
 from api_endpoints.handler import GenerateHandler
 from logging_config import setup_logging
@@ -12,6 +13,12 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+CORS(
+    app,
+    origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 VALID_TASK_TYPES = {"text", "image", "video", "audio", "agent", "pii", "language", "tabular", "code"}
 MAX_ROWS = int(os.getenv("MAX_ROWS_PER_REQUEST", "100"))
@@ -117,3 +124,37 @@ def generate_export():
         return jsonify({"error": str(e)}), 422
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/public/generate/quality", methods=["POST"])
+def generate_quality():
+    from utils.quality import score_dataset
+
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    body = request.get_json() or {}
+    data = body.get("data", [])
+    prompt = body.get("prompt", "")
+    run_llm_review = body.get("run_llm_review", False)
+    deduplicate = body.get("deduplicate", False)
+
+    if not isinstance(data, list) or not data:
+        return jsonify({"error": "data must be a non-empty list"}), 422
+
+    try:
+        report = score_dataset(data, prompt=prompt, run_llm_review=run_llm_review)
+    except Exception as e:
+        logger.error("Quality scoring failed: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+    response = {"quality": report}
+    if deduplicate:
+        from utils.quality import deduplicate as dedup_fn
+        response["data"] = dedup_fn(data)
+    return jsonify(response)

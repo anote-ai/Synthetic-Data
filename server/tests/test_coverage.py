@@ -202,14 +202,15 @@ class TestExportEndpoint:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestHandlerEdgeCases:
-    def test_task_type_in_app_but_not_registry_returns_422(self, client):
-        """'tabular' passes app.py validation but is not in _GENERATOR_REGISTRY."""
-        resp = client.post("/public/generate", json={
-            "task_type": "tabular",
-            "prompt": "Generate data",
-            "num_rows": 1,
-            "columns": ["col"],
-        })
+    def test_unresolvable_generator_returns_422(self, client):
+        """When _resolve_generator returns None the handler responds 422."""
+        with patch("api_endpoints.handler._resolve_generator", return_value=None):
+            resp = client.post("/public/generate", json={
+                "task_type": "text",
+                "prompt": "Generate data",
+                "num_rows": 1,
+                "columns": ["col"],
+            })
         assert resp.status_code == 422
         assert "error" in resp.get_json()
 
