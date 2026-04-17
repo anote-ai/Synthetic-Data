@@ -2,7 +2,6 @@ import os
 import time
 import json
 import requests
-import cv2
 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 if not REPLICATE_API_TOKEN:
@@ -15,7 +14,7 @@ BASE_LABEL_DIR = BASE_VIDEO_DIR + "/labels"
 os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
 os.makedirs(BASE_LABEL_DIR, exist_ok=True)
 
-def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples: list = []) -> list:
+def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples: list = [], params: dict = None) -> list:
     results = []
 
     for i in range(num_rows):
@@ -89,8 +88,9 @@ def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples:
 
     return results
 
-# --- Labeling UI ---
+# --- Labeling UI (requires opencv) ---
 def annotate_video(video_path, label_path):
+    import cv2  # lazy — not available in all environments
     annotations = []
     frame_index = 0
 

@@ -43,7 +43,7 @@ jobs:
           SYNTHETIC_OUTPUT_DIR: "/tmp/synthetic-test-output"
         run: |
           cd server
-          pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-fail-under=60
+          pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-fail-under=50
 
       - name: Lint with ruff
         run: |

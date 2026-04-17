@@ -208,3 +208,42 @@ if __name__ == "__main__":
     topics_list = prompt_for_topics()
     num_per_topic = prompt_for_num_qas()
     run_generation_pipeline(topics_list, num_per_topic)
+
+
+def generate_language_data(
+    prompt: str,
+    columns: list,
+    num_rows: int = 5,
+    examples: list = None,
+    params: dict = None,
+) -> list:
+    """Generator contract wrapper — produces multilingual Q&A rows."""
+    params = params or {}
+    target_language = params.get("target_language", "English")
+    model = params.get("model", "gpt-4o-mini")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return [{"status": "failed", "error": "OPENAI_API_KEY not set"}] * num_rows
+
+    client = openai.OpenAI(api_key=api_key)
+    results = []
+    for i in range(num_rows):
+        try:
+            column_desc = ", ".join(f'"{c}"' for c in columns)
+            system_msg = (
+                f"You are a {target_language} language dataset generator. "
+                f"Generate a realistic row with these fields: {column_desc}. "
+                f"Context: {prompt}. "
+                "Return ONLY a JSON object with those keys, no extra text."
+            )
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_msg}],
+                response_format={"type": "json_object"},
+            )
+            row = json.loads(resp.choices[0].message.content)
+            row["status"] = "succeeded"
+            results.append(row)
+        except Exception as e:
+            results.append({"status": "failed", "error": str(e)})
+    return results
