@@ -1,0 +1,23 @@
+version: "3.9"
+
+# Dev overrides: hot-reload mounts, debug mode
+services:
+  api:
+    build:
+      context: ./server
+    command: ["flask", "run", "--host=0.0.0.0", "--port=5000", "--debug"]
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    volumes:
+      - ./server:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    command: ["npm", "start"]
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
