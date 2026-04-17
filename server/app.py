@@ -253,3 +253,67 @@ def generate_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.route("/public/generate/async", methods=["POST"])
+def generate_async():
+    """Submit a generation job and return immediately with a job_id."""
+    from utils.jobs import submit_job
+
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+
+    try:
+        user_email = extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    body = request.get_json(silent=True) or {}
+
+    errors = {}
+    task_type = body.get("task_type")
+    if not task_type:
+        errors["task_type"] = "field required"
+    elif task_type not in VALID_TASK_TYPES:
+        errors["task_type"] = f"must be one of {sorted(VALID_TASK_TYPES)}"
+    if not body.get("prompt", "").strip():
+        errors["prompt"] = "field required"
+    if not body.get("columns", []):
+        errors["columns"] = "must be a non-empty list"
+    if errors:
+        return jsonify({"error": "Validation failed", "details": errors}), 422
+
+    job = submit_job(body, user_email)
+    return jsonify({"job_id": job["job_id"], "status": job["status"]}), 202
+
+
+@app.route("/public/jobs/<job_id>", methods=["GET"])
+def get_job(job_id):
+    """Return job status and result (once complete)."""
+    from utils.jobs import get_job as _get
+
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    job = _get(job_id)
+    if job is None:
+        return jsonify({"error": f"Job '{job_id}' not found"}), 404
+    return jsonify(job)
+
+
+@app.route("/public/jobs/<job_id>", methods=["DELETE"])
+def cancel_job(job_id):
+    """Cancel a queued or running job."""
+    from utils.jobs import cancel_job as _cancel
+
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    job = _cancel(job_id)
+    if job is None:
+        return jsonify({"error": f"Job '{job_id}' not found"}), 404
+    return jsonify(job)

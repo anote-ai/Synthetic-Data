@@ -23,6 +23,7 @@ from .core import (
     AnoteValidationError,
     AnoteRateLimitError,
     AnoteServerError,
+    Job,
 )
 
 __version__ = "1.0.0"
@@ -33,5 +34,6 @@ __all__ = [
     "AnoteValidationError",
     "AnoteRateLimitError",
     "AnoteServerError",
+    "Job",
     "__version__",
 ]
