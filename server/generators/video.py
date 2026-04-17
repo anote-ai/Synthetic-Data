@@ -1,159 +1,220 @@
-import os
-import time
+"""
+Video synthetic data generator — async Replicate polling + GPT-4o Vision frame annotations.
+No interactive OpenCV UI; all labeling is headless.
+"""
+import asyncio
+import base64
 import json
-import requests
+import logging
+import os
+import tempfile
+from pathlib import Path
+from typing import Optional
 
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-if not REPLICATE_API_TOKEN:
-    raise RuntimeError("REPLICATE_API_TOKEN environment variable is not set")
+import httpx
 
-MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
+try:
+    import nest_asyncio as _nest
+    _nest.apply()
+except ImportError:
+    pass
 
-BASE_VIDEO_DIR = os.getenv("SYNTHETIC_OUTPUT_DIR", "./outputs") + "/video"
-BASE_LABEL_DIR = BASE_VIDEO_DIR + "/labels"
-os.makedirs(BASE_VIDEO_DIR, exist_ok=True)
-os.makedirs(BASE_LABEL_DIR, exist_ok=True)
+logger = logging.getLogger(__name__)
 
-def generate_video_data(prompt: str, columns: list, num_rows: int = 1, examples: list = [], params: dict = None) -> list:
-    results = []
+_MODEL_VERSION = "8ba52bde11300615f65e9591d7afc58816def12c93c870fa583ff67ae17afdda"
+_REPLICATE_BASE = "https://api.replicate.com/v1"
+_POLL_BACKOFF = [5, 10, 20, 40, 60]  # seconds between polls
 
-    for i in range(num_rows):
-        try:
-            headers = {
-                "Authorization": f"Token {REPLICATE_API_TOKEN}",
-                "Content-Type": "application/json",
-            }
+_OUTPUT_DIR = Path(os.getenv("SYNTHETIC_OUTPUT_DIR", "./outputs")) / "video"
 
-            data = {
-                "version": MODEL_VERSION,
-                "input": {
-                    "prompt": prompt,
-                    "num_frames": 24,
-                    "fps": 6,
-                    "width": 576,
-                    "height": 320
-                }
-            }
 
-            response = requests.post("https://api.replicate.com/v1/predictions", headers=headers, data=json.dumps(data))
-            if response.status_code != 201:
-                raise Exception(f"Failed to initiate generation: {response.text}")
+def _output_dir() -> Path:
+    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    return _OUTPUT_DIR
 
-            prediction = response.json()
-            poll_url = prediction["urls"]["get"]
-            status = prediction["status"]
 
-            print(f"⏳ [{i+1}/{num_rows}] Generating video...")
+# ── Replicate async client ────────────────────────────────────────────────────
 
-            while status not in ["succeeded", "failed", "canceled"]:
-                time.sleep(10)
-                prediction = requests.get(poll_url, headers=headers).json()
-                status = prediction["status"]
+async def _submit_prediction(client: httpx.AsyncClient, token: str, prompt: str, params: dict) -> str:
+    fps = int(params.get("fps", 6))
+    width, height = _parse_resolution(params.get("resolution", "576x320"))
+    payload = {
+        "version": _MODEL_VERSION,
+        "input": {
+            "prompt": prompt,
+            "num_frames": int(params.get("num_frames", fps * int(params.get("duration", 4)))),
+            "fps": fps,
+            "width": width,
+            "height": height,
+        },
+    }
+    resp = await client.post(
+        f"{_REPLICATE_BASE}/predictions",
+        headers={"Authorization": f"Token {token}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["urls"]["get"]
 
-            if status != "succeeded":
-                raise Exception("Video generation failed")
 
-            video_url = prediction["output"]
-            video_path = os.path.join(BASE_VIDEO_DIR, f"video_{i}.mp4")
-            label_path = os.path.join(BASE_LABEL_DIR, f"video_{i}.json")
+async def _poll_prediction(client: httpx.AsyncClient, token: str, poll_url: str) -> str:
+    """Poll until succeeded/failed; return video URL on success."""
+    headers = {"Authorization": f"Token {token}"}
+    for wait in _POLL_BACKOFF + [60] * 20:  # up to ~30 minutes
+        await asyncio.sleep(wait)
+        resp = await client.get(poll_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        prediction = resp.json()
+        status = prediction.get("status")
+        if status == "succeeded":
+            return prediction["output"]
+        if status in ("failed", "canceled"):
+            raise RuntimeError(f"Replicate prediction {status}: {prediction.get('error', 'unknown')}")
+    raise TimeoutError("Video generation timed out")
 
-            video_data = requests.get(video_url)
-            with open(video_path, "wb") as f:
-                f.write(video_data.content)
 
-            # Save initial label JSON
-            with open(label_path, "w") as f:
-                json.dump({
-                    "prompt": prompt,
-                    "video_path": video_path,
-                    "annotations": [],
-                    "summary_labels": []
-                }, f, indent=2)
+# ── Frame extraction & GPT-4o Vision annotation ──────────────────────────────
 
-            results.append({
-                "video_path": video_path,
-                "video_url": video_url,
-                "label_path": label_path,
-                "prompt": prompt,
-                "columns": columns,
-                "status": "succeeded"
-            })
-
-        except Exception as e:
-            results.append({
-                "status": "failed",
-                "error": str(e),
-                "prompt": prompt
-            })
-
-    return results
-
-# --- Labeling UI (requires opencv) ---
-def annotate_video(video_path, label_path):
-    import cv2  # lazy — not available in all environments
-    annotations = []
-    frame_index = 0
-
-    def click_event(event, x, y, flags, param):
-        nonlocal frame_index
-        if event == cv2.EVENT_LBUTTONDOWN:
-            label = input(f"Label for object at (x={x}, y={y}) on frame {frame_index}: ")
-            annotations.append({
-                "frame": frame_index,
-                "x": x,
-                "y": y,
-                "label": label
-            })
-            print(f"✅ Saved annotation at frame {frame_index}: ({x}, {y}) -> {label}")
-
+def _extract_keyframes(video_path: str, num_keyframes: int = 5) -> list[str]:
+    """Return list of base64-encoded JPEG keyframes, or empty list if cv2 unavailable."""
+    try:
+        import cv2  # optional dependency
+    except ImportError:
+        logger.warning("cv2 not available — skipping keyframe extraction")
+        return []
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print("❌ Failed to open video.")
-        return
-
-    cv2.namedWindow("Video Labeler")
-    cv2.setMouseCallback("Video Labeler", click_event)
-
-    print("ℹ️ Press 'q' to quit. Left-click to label.")
-
-    while True:
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+    indices = [int(total * i / num_keyframes) for i in range(num_keyframes)]
+    frames_b64 = []
+    for idx in indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ret, frame = cap.read()
         if not ret:
-            print("✅ End of video.")
-            break
-
-        cv2.imshow("Video Labeler", frame)
-        key = cv2.waitKey(30) & 0xFF
-        if key == ord('q'):
-            print("👋 Exiting video labeler.")
-            break
-
-        frame_index += 1
-
+            continue
+        _, buf = cv2.imencode(".jpg", frame)
+        frames_b64.append(base64.b64encode(buf).decode())
     cap.release()
-    cv2.destroyAllWindows()
+    return frames_b64
 
-    with open(label_path, "r") as f:
-        data = json.load(f)
-    data["annotations"] = annotations
 
-    with open(label_path, "w") as f:
-        json.dump(data, f, indent=2)
+async def _annotate_frames(frames_b64: list[str], prompt: str) -> list[dict]:
+    """Call GPT-4o Vision to describe each keyframe."""
+    import openai
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return []
+    client = openai.AsyncOpenAI(api_key=api_key)
+    annotations = []
+    for i, b64 in enumerate(frames_b64):
+        try:
+            resp = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"This is keyframe {i} from a synthetic video generated with prompt: '{prompt}'. "
+                                    "Describe the scene in 1-2 sentences."
+                                ),
+                            },
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                        ],
+                    }
+                ],
+                max_tokens=150,
+            )
+            description = resp.choices[0].message.content.strip()
+        except Exception as e:
+            description = f"annotation failed: {e}"
+        annotations.append({"frame_index": i, "description": description})
+    return annotations
 
-    print(f"✅ Saved {len(annotations)} annotations to {label_path}")
 
-# --- Run Everything ---
-if __name__ == "__main__":
-    prompt = "a cat riding a skateboard"
-    columns = ["video_path", "prompt", "annotations"]
+# ── Per-row generation ────────────────────────────────────────────────────────
 
-    results = generate_video_data(prompt=prompt, columns=columns, num_rows=1)
+async def _generate_one(
+    client: httpx.AsyncClient,
+    token: str,
+    prompt: str,
+    index: int,
+    params: dict,
+) -> dict:
+    try:
+        poll_url = await _submit_prediction(client, token, prompt, params)
+        video_url = await _poll_prediction(client, token, poll_url)
 
-    for result in results:
-        if result["status"] == "succeeded":
-            video_path = result["video_path"]
-            label_path = result["label_path"]
-            annotate_video(video_path, label_path)
-        else:
-            print(f"⚠️ Skipping video due to failure: {result.get('error')}")
+        # Download video
+        out_path = _output_dir() / f"video_{index}.mp4"
+        video_bytes = (await client.get(video_url, timeout=120)).content
+        out_path.write_bytes(video_bytes)
 
+        result: dict = {
+            "video_path": str(out_path),
+            "video_url": video_url,
+            "fps": int(params.get("fps", 6)),
+            "resolution": params.get("resolution", "576x320"),
+            "duration_seconds": float(params.get("duration", 4)),
+            "frame_annotations": [],
+            "status": "succeeded",
+        }
+
+        if params.get("annotate_frames", False):
+            num_kf = int(params.get("num_keyframes", 5))
+            frames = _extract_keyframes(str(out_path), num_kf)
+            if frames:
+                result["frame_annotations"] = await _annotate_frames(frames, prompt)
+
+        return result
+    except Exception as e:
+        logger.error("Video generation row %d failed: %s", index, e)
+        return {"status": "failed", "error": str(e)}
+
+
+async def _generate_all(prompt: str, num_rows: int, params: dict) -> list:
+    token = os.getenv("REPLICATE_API_TOKEN")
+    if not token:
+        return [{"status": "failed", "error": "REPLICATE_API_TOKEN not set"}] * num_rows
+
+    async with httpx.AsyncClient() as client:
+        tasks = [_generate_one(client, token, prompt, i, params) for i in range(num_rows)]
+        return await asyncio.gather(*tasks)
+
+
+# ── Public entry point ────────────────────────────────────────────────────────
+
+def generate_video_data(
+    prompt: str,
+    columns: list,
+    num_rows: int = 1,
+    examples: list = None,
+    params: dict = None,
+) -> list:
+    """
+    Generate synthetic video data using the Replicate API (async, non-blocking poll).
+
+    params keys:
+        fps: frames per second (default 6)
+        resolution: e.g. "576x320" or "1280x720" (default "576x320")
+        duration: video length in seconds (default 4)
+        annotate_frames: bool — run GPT-4o Vision on keyframes (default False)
+        num_keyframes: how many frames to annotate (default 5)
+    """
+    params = params or {}
+    try:
+        return asyncio.get_event_loop().run_until_complete(_generate_all(prompt, num_rows, params))
+    except RuntimeError as e:
+        return [{"status": "failed", "error": str(e)}] * num_rows
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _parse_resolution(res: str) -> tuple[int, int]:
+    try:
+        w, h = res.lower().split("x")
+        return int(w), int(h)
+    except Exception:
+        return 576, 320
