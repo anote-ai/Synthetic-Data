@@ -7,7 +7,7 @@ import json
 import asyncio
 import re
 from typing import List, Optional
-from openai import AsyncOpenAI
+import openai
 from tqdm.auto import tqdm
 import nest_asyncio
 
@@ -18,11 +18,11 @@ CONCURRENCY = 5
 MAX_RETRIES = 3
 
 
-def _get_client() -> AsyncOpenAI:
+def _get_client():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY environment variable is not set")
-    return AsyncOpenAI(api_key=api_key)
+    return openai.AsyncOpenAI(api_key=api_key)
 
 
 def _build_system_prompt(columns: List[str], prompt: str, examples: List[dict]) -> str:
@@ -56,7 +56,7 @@ def _extract_json(raw: str) -> list:
 
 
 async def _generate_batch(
-    client: AsyncOpenAI,
+    client,
     system_prompt: str,
     user_prompt: str,
     columns: List[str],
