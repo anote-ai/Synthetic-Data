@@ -210,6 +210,89 @@ if __name__ == "__main__":
     run_generation_pipeline(topics_list, num_per_topic)
 
 
+
+# ─── Async, language-agnostic generator (issue #42) ──────────────────────────
+import asyncio
+try:
+    import nest_asyncio as _nest
+    _nest.apply()
+except ImportError:
+    pass
+
+_LANG_CONCURRENCY = 3
+_LANG_MAX_RETRIES = 3
+
+
+def _lang_get_async_client(model: str):
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY environment variable is not set")
+    return openai.AsyncOpenAI(api_key=api_key)
+
+
+def _lang_build_system(prompt: str, columns: list, language: str, examples: list) -> str:
+    col_desc = ", ".join(f'"{c}"' for c in columns)
+    system = (
+        f"You are a multilingual synthetic dataset generator.\n"
+        f"Target language: {language}\n"
+        f"Context: {prompt}\n"
+        f"Each response must be a JSON object with exactly these keys: {col_desc}.\n"
+        f"Write all text values in {language}. Return ONLY the JSON object.\n"
+    )
+    if examples:
+        system += f"\nReference examples:\n{json.dumps(examples[:3], ensure_ascii=False)}\n"
+    return system
+
+
+async def _lang_generate_one(
+    client, system: str, columns: list, model: str,
+    semaphore: asyncio.Semaphore, index: int,
+) -> dict:
+    async with semaphore:
+        for attempt in range(_LANG_MAX_RETRIES):
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": f"Generate row {index + 1}."},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.85,
+                )
+                raw = resp.choices[0].message.content.strip()
+                row = json.loads(raw)
+                return {col: row.get(col, "") for col in columns} | {"status": "succeeded"}
+            except json.JSONDecodeError as e:
+                if attempt == _LANG_MAX_RETRIES - 1:
+                    return {"status": "failed", "error": f"JSON parse error: {e}"}
+                await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                if attempt == _LANG_MAX_RETRIES - 1:
+                    return {"status": "failed", "error": str(e)}
+                await asyncio.sleep(2 ** attempt)
+    return {"status": "failed", "error": "Max retries exceeded"}
+
+
+async def _lang_generate_all(
+    prompt: str, columns: list, num_rows: int, examples: list, params: dict,
+) -> list:
+    language = params.get("language", params.get("target_language", "English"))
+    model = params.get("model", "gpt-4o-mini")
+    concurrency = min(int(params.get("concurrency", _LANG_CONCURRENCY)), 8)
+    client = _lang_get_async_client(model)
+    semaphore = asyncio.Semaphore(concurrency)
+    system = _lang_build_system(prompt, columns, language, examples)
+    tasks = [
+        _lang_generate_one(client, system, columns, model, semaphore, i)
+        for i in range(num_rows)
+    ]
+    results = []
+    for coro in asyncio.as_completed(tasks):
+        results.append(await coro)
+    return results[:num_rows]
+
+
 def generate_language_data(
     prompt: str,
     columns: list,
@@ -217,33 +300,19 @@ def generate_language_data(
     examples: list = None,
     params: dict = None,
 ) -> list:
-    """Generator contract wrapper — produces multilingual Q&A rows."""
-    params = params or {}
-    target_language = params.get("target_language", "English")
-    model = params.get("model", "gpt-4o-mini")
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return [{"status": "failed", "error": "OPENAI_API_KEY not set"}] * num_rows
+    """
+    Generate multilingual synthetic data using GPT-4o-mini (async, concurrent).
 
-    client = openai.OpenAI(api_key=api_key)
-    results = []
-    for i in range(num_rows):
-        try:
-            column_desc = ", ".join(f'"{c}"' for c in columns)
-            system_msg = (
-                f"You are a {target_language} language dataset generator. "
-                f"Generate a realistic row with these fields: {column_desc}. "
-                f"Context: {prompt}. "
-                "Return ONLY a JSON object with those keys, no extra text."
-            )
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "system", "content": system_msg}],
-                response_format={"type": "json_object"},
-            )
-            row = json.loads(resp.choices[0].message.content)
-            row["status"] = "succeeded"
-            results.append(row)
-        except Exception as e:
-            results.append({"status": "failed", "error": str(e)})
-    return results
+    params keys:
+        language: target language string, e.g. "Japanese", "Spanish" (default: "English")
+        model: OpenAI model name (default: "gpt-4o-mini")
+        concurrency: parallel API calls (default: 3, max: 8)
+    """
+    examples = examples or []
+    params = params or {}
+    try:
+        return asyncio.get_event_loop().run_until_complete(
+            _lang_generate_all(prompt, columns, num_rows, examples, params)
+        )
+    except RuntimeError as e:
+        return [{"status": "failed", "error": str(e)}] * num_rows
