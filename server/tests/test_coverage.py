@@ -254,63 +254,42 @@ class TestHandlerEdgeCases:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestVideoGeneratorUnit:
-    def test_missing_replicate_token_raises_on_import(self):
-        import importlib
-        original = sys.modules.pop("generators.video", None)
-        try:
-            with patch.dict("os.environ", {"REPLICATE_API_TOKEN": ""}):
-                with pytest.raises(RuntimeError, match="REPLICATE_API_TOKEN"):
-                    importlib.import_module("generators.video")
-        finally:
-            sys.modules.pop("generators.video", None)
-            if original is not None:
-                sys.modules["generators.video"] = original
-
-    def test_api_non_201_returns_failed(self):
+    def test_missing_replicate_token_returns_failed(self):
         from generators.video import generate_video_data
-        mock_resp = MagicMock()
-        mock_resp.status_code = 500
-        mock_resp.text = "Server Error"
-        with patch("generators.video.requests.post", return_value=mock_resp):
-            results = generate_video_data("a cat running", ["video_path"], 1, [], {})
+        with patch.dict("os.environ", {}, clear=True):
+            results = generate_video_data("a cat running", ["video_path"], 2, [], {})
+        assert all(r["status"] == "failed" for r in results)
+        assert all("REPLICATE_API_TOKEN" in r["error"] for r in results)
+
+    def test_generate_returns_list_of_correct_length(self, tmp_path):
+        from generators.video import generate_video_data
+        from unittest.mock import AsyncMock
+        mock_results = [{"status": "succeeded", "video_path": "p.mp4", "frame_annotations": []}]
+        import generators.video as vid_mod
+        with patch.object(vid_mod, "_generate_all", new=AsyncMock(return_value=mock_results)):
+            results = generate_video_data("a cat", ["video_path"], 1, [], {})
+        assert results == mock_results
+
+    def test_replicate_error_propagates_as_failed(self, tmp_path):
+        from generators.video import generate_video_data
+        from unittest.mock import AsyncMock
+        import generators.video as vid_mod
+        error_results = [{"status": "failed", "error": "HTTP 503"}]
+        with patch.object(vid_mod, "_generate_all", new=AsyncMock(return_value=error_results)):
+            results = generate_video_data("a cat", ["video_path"], 1, [], {})
         assert results[0]["status"] == "failed"
-        assert "Failed to initiate" in results[0]["error"]
+        assert "503" in results[0]["error"]
 
-    def test_replicate_status_failed_returns_failed(self):
+    def test_successful_video_generation(self, tmp_path):
         from generators.video import generate_video_data
-        init = MagicMock()
-        init.status_code = 201
-        init.json.return_value = {
-            "urls": {"get": "https://api.replicate.com/v1/predictions/abc"},
-            "status": "starting",
-        }
-        poll = MagicMock()
-        poll.json.return_value = {"status": "failed"}
-        with patch("generators.video.requests.post", return_value=init), \
-             patch("generators.video.requests.get", return_value=poll), \
-             patch("generators.video.time.sleep"):
-            results = generate_video_data("a cat running", ["video_path"], 1, [], {})
-        assert results[0]["status"] == "failed"
-
-    def test_successful_video_generation(self):
-        from generators.video import generate_video_data
-        init = MagicMock()
-        init.status_code = 201
-        init.json.return_value = {
-            "urls": {"get": "https://api.replicate.com/v1/predictions/abc"},
-            "status": "starting",
-        }
-        poll = MagicMock()
-        poll.json.return_value = {"status": "succeeded", "output": "https://example.com/video.mp4"}
-        video_content = MagicMock()
-        video_content.content = b"fake_video_bytes"
-        with patch("generators.video.requests.post", return_value=init), \
-             patch("generators.video.requests.get") as mock_get, \
-             patch("generators.video.time.sleep"), \
-             patch("builtins.open", MagicMock()):
-            mock_get.return_value = poll
+        from unittest.mock import AsyncMock
+        import generators.video as vid_mod
+        success = [{"status": "succeeded", "video_path": str(tmp_path / "v.mp4"),
+                    "fps": 6, "resolution": "576x320", "frame_annotations": []}]
+        with patch.object(vid_mod, "_generate_all", new=AsyncMock(return_value=success)):
             results = generate_video_data("a cat running", ["video_path"], 1, [], {})
         assert results[0]["status"] == "succeeded"
+        assert "video_path" in results[0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
