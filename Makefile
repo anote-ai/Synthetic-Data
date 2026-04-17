@@ -1,4 +1,4 @@
-.PHONY: install test lint dev frontend clean
+.PHONY: install test lint dev frontend clean docker-up docker-down docker-logs docker-build
 
 install:
 	cd server && pip install -r requirements.txt
@@ -30,3 +30,15 @@ clean:
 outputs-clean:
 	find outputs/ -type f -mtime +7 -delete 2>/dev/null; \
 	echo "Removed output files older than 7 days"
+
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f api
