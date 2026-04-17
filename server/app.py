@@ -3,7 +3,7 @@ import os
 import time
 import uuid
 
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, Response, stream_with_context
 from flask_cors import CORS
 from auth_utils import valid_api_key_required, extractUserEmailFromRequest, InvalidTokenError
 from api_endpoints.handler import GenerateHandler
@@ -158,3 +158,52 @@ def generate_quality():
         from utils.quality import deduplicate as dedup_fn
         response["data"] = dedup_fn(data)
     return jsonify(response)
+
+
+@app.route("/public/generate/stream", methods=["POST"])
+def generate_stream():
+    """
+    SSE endpoint — streams rows one-by-one as they are generated.
+
+    Same request body as POST /public/generate.
+    Response: text/event-stream with one 'data: <json>' line per row,
+    ending with {"type": "done", "total_rows": N}.
+    """
+    import json as _json
+    from api_endpoints.handler import _resolve_generator
+
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+
+    try:
+        user_email = extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    body = request.get_json(silent=True) or {}
+    task_type = body.get("task_type")
+    prompt = body.get("prompt", "")
+    num_rows = body.get("num_rows", 5)
+    columns = body.get("columns", [])
+    examples = body.get("examples", [])
+    params = body.get("params", {})
+
+    def event_stream():
+        generator_fn = _resolve_generator(task_type)
+        if generator_fn is None:
+            yield f'data: {_json.dumps({"type": "error", "message": f"Unsupported task_type: {task_type}"})}\n\n'
+            return
+        try:
+            rows = generator_fn(prompt, columns, num_rows, examples, params)
+        except Exception as e:
+            yield f'data: {_json.dumps({"type": "error", "message": str(e)})}\n\n'
+            return
+        for i, row in enumerate(rows):
+            yield f'data: {_json.dumps({"type": "progress", "row": i, "total": len(rows), "data": row})}\n\n'
+        yield f'data: {_json.dumps({"type": "done", "total_rows": len(rows)})}\n\n'
+
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
