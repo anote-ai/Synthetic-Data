@@ -13,6 +13,8 @@ _GENERATOR_REGISTRY = {
     "agent":    ("generators.agent",    "generate_agent_data"),
     "pii":      ("generators.PII",      "generate_pii_data"),
     "language": ("generators.Language", "generate_language_data"),
+    "tabular":  ("generators.tabular",  "generate_tabular_data"),
+    "code":     ("generators.code",     "generate_code_data"),
 }
 
 
