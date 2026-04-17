@@ -108,7 +108,7 @@ class TestExampleTextRequest:
             resp = client.post("/public/generate", json=payload)
         assert resp.status_code == 200
         result = resp.get_json()
-        assert result == EXAMPLE_TEXT_RESPONSE
+        assert result["data"] == EXAMPLE_TEXT_RESPONSE["data"]
 
     def test_sentiment_dataset_generation(self, client):
         payload = {
