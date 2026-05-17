@@ -2,24 +2,24 @@
 
 ## What is Synthetic Data?
 
-Synthetic Data is a platform for generating synthetic datasets at [anote.ai/syntheticdata](https://anote.ai/syntheticdata). It enables teams to create high-quality labeled training data at scale using LLMs, reducing the cost and time of manual annotation.
+Synthetic Data is a tool for generating synthetic datasets, available at [anote.ai/syntheticdata](https://anote.ai/syntheticdata). It lets you create high-quality labeled training data from scratch using LLMs.
 
 ## Architecture
 
 | Layer | Technology | Location |
 |-------|-----------|----------|
-| Frontend | React (Node 18) | `frontend/` |
-| API / Backend | Python, FastAPI | `api/` |
-| Server utilities | Python | `server/` |
-| Container orchestration | Docker Compose | `docker-compose.yml` + `docker-compose.override.yml` |
+| Frontend | React (Create React App) | `frontend/` |
+| Backend API | Python, FastAPI | `api/` |
+| Backend workers / utilities | Python | `server/` |
+| Container orchestration | Docker Compose | `docker-compose.yml` + `docker-compose.override.yml` (local dev) |
 
-`docker-compose.override.yml` is used for local development overrides (e.g. volume mounts, hot reload) and is applied automatically when running `docker-compose up`.
+The `docker-compose.override.yml` file is automatically picked up by Docker Compose for local development and adds volume mounts and hot-reload settings on top of the base `docker-compose.yml`.
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
-- Node 18 (only needed for manual frontend setup)
-- Python 3.11 (only needed for manual backend setup)
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) (recommended path)
+- Node 18+ (manual frontend setup)
+- Python 3.11+ (manual backend setup)
 
 ## Quick Start with Docker Compose (RECOMMENDED)
 
@@ -28,25 +28,24 @@ Synthetic Data is a platform for generating synthetic datasets at [anote.ai/synt
 git clone https://github.com/anote-ai/Synthetic-Data.git
 cd Synthetic-Data
 
-# 2. Copy and fill in environment variables
+# 2. Copy the example env file and fill in your values
 cp .env.example .env
-# Edit .env and set required values (see Environment Variables below)
 
-# 3. Start all services (override file is picked up automatically)
+# 3. Start all services (override file is applied automatically)
 docker-compose up --build
 ```
 
 - Frontend: [http://localhost:3000](http://localhost:3000)
-- API: [http://localhost:8000](http://localhost:8000)
+- Backend API: [http://localhost:8000](http://localhost:8000)
 
 ## Manual Setup (without Docker)
 
-### Backend (api/)
+### Backend (API)
 
 ```bash
 cd api
 pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --port 8000
 ```
 
 ### Frontend
@@ -54,45 +53,40 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```bash
 cd frontend
 npm install
-npm start
+npm start   # starts on http://localhost:3000
 ```
-
-The dev server starts at `http://localhost:3000`.
 
 ## Environment Variables
 
-Copy `.env.example` to `.env`. Key variables include:
+All environment variables are documented in `.env.example`. Key variables include:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key for synthetic generation |
-| `ANTHROPIC_API_KEY` | No | Anthropic API key for Claude models |
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `SECRET_KEY` | Yes | Random secret for session tokens |
-| `REACT_APP_BACK_END_HOST` | Yes | Backend URL seen by the browser |
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key used for synthetic generation |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude-based generation |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `REACT_APP_BACK_END_HOST` | Backend URL consumed by the React app |
 
-Refer to `.env.example` for the full list of variables and their defaults.
-
-## CI/CD
+## CI / CD
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| `ci.yml` | PR / push to main | Runs lint and tests on PRs |
-| `publish.yml` | Tag / release | Publishes the Python package to PyPI |
-| `deploy.yml` | Manual (`workflow_dispatch`) | Builds Docker image → ECR → ECS (backend); React build → S3 → CloudFront (frontend) |
+| `ci.yml` | Pull request | Runs lint and tests on every PR |
+| `publish.yml` | Push to `main` / tag | Publishes the Python package to PyPI |
+| `deploy.yml` | Manual (`workflow_dispatch`) | Builds Docker image (ECR repository: `synthetic-data-backend`) → pushes to ECR → updates ECS; syncs frontend to S3, invalidates CloudFront |
 
 ### Required GitHub Secrets for Deployment
 
-Configure these in **Settings → Secrets and variables → Actions**:
+Set these in **Settings → Secrets and variables → Actions**:
 
 | Secret | Description |
 |--------|-------------|
-| `AWS_ACCESS_KEY_ID` | IAM access key with ECR/ECS/S3/CloudFront permissions |
-| `AWS_SECRET_ACCESS_KEY` | Corresponding IAM secret key |
-| `AWS_REGION` | AWS region (defaults to `us-east-1`) |
-| `ECS_CLUSTER` | ECS cluster name |
-| `ECS_SERVICE_BACKEND` | ECS service name (ECR repository: `synthetic-data-backend`) |
-| `S3_BUCKET_FRONTEND` | S3 bucket for the React build |
-| `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront distribution ID |
+| `AWS_ACCESS_KEY_ID` | IAM access key with ECS/ECR/S3/CloudFront permissions |
+| `AWS_SECRET_ACCESS_KEY` | Corresponding IAM secret |
+| `AWS_REGION` | AWS region, e.g. `us-east-1` |
+| `ECS_CLUSTER` | Name of the ECS cluster |
+| `ECS_SERVICE_BACKEND` | Name of the ECS service for the backend |
+| `S3_BUCKET_FRONTEND` | S3 bucket name for the frontend static files |
+| `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront distribution ID to invalidate after deploy |
 | `REACT_APP_BACK_END_HOST` | Backend URL injected at React build time |
-| `SLACK_WEBHOOK_URL` | (Optional) Slack webhook for failure alerts |
+| `SLACK_WEBHOOK_URL` | (Optional) Slack incoming webhook for failure notifications |
