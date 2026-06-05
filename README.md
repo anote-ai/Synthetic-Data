@@ -109,6 +109,12 @@ Returns `{"status": "ok"}`. No auth required.
 
 ---
 
+### `GET /public/generate/task-types`
+
+Returns the task types supported by the generation API and the configured maximum row limit. No auth required.
+
+---
+
 ### `POST /public/generate`
 
 Generate a synthetic dataset.
