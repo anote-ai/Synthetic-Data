@@ -62,19 +62,18 @@ async def _generate_batch(
     columns: List[str],
     batch_size: int,
     semaphore: asyncio.Semaphore,
-    retry: int = 0,
+    model: str = MODEL,
 ) -> List[dict]:
     async with semaphore:
         for attempt in range(MAX_RETRIES):
             try:
                 response = await client.chat.completions.create(
-                    model=MODEL,
+                    model=model,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
                     temperature=0.9,
-                    response_format={"type": "json_object"} if batch_size == 1 else {"type": "text"},
                 )
                 raw = response.choices[0].message.content.strip()
                 rows = _extract_json(raw)
@@ -124,7 +123,7 @@ async def _generate_all(
     tasks = []
     for b in batches:
         user_prompt = _build_user_prompt(columns, b)
-        tasks.append(_generate_batch(client, system_prompt, user_prompt, columns, b, semaphore))
+        tasks.append(_generate_batch(client, system_prompt, user_prompt, columns, b, semaphore, model_override))
 
     results = []
     with tqdm(total=num_rows, desc="Generating text rows") as pbar:
