@@ -101,6 +101,7 @@ async def _generate_all(
     num_rows: int,
     examples: List[dict],
     params: Optional[dict] = None,
+    on_row=None,
 ) -> List[dict]:
     params = params or {}
     batch_size = min(params.get("batch_size", 10), 20)
@@ -131,6 +132,9 @@ async def _generate_all(
             batch_result = await coro
             results.extend(batch_result)
             pbar.update(len(batch_result))
+            if on_row:
+                for row in batch_result:
+                    on_row(row)
 
     return results[:num_rows]
 
@@ -141,24 +145,16 @@ def generate_text_data(
     num_rows: int = 5,
     examples: Optional[List[dict]] = None,
     params: Optional[dict] = None,
+    on_row=None,
 ) -> List[dict]:
-    """
-    Generate synthetic text data using GPT-4o-mini.
-
-    Args:
-        prompt: Domain context describing the data to generate
-        columns: List of column names for the output rows
-        num_rows: Number of rows to generate
-        examples: Optional few-shot example rows
-        params: Optional dict with keys:
-            - model: OpenAI model name (default: gpt-4o-mini)
-            - batch_size: Rows per LLM call (default: 10, max: 20)
-            - concurrency: Concurrent API calls (default: 5, max: 10)
-
-    Returns:
-        List of dicts, each with the requested columns + "status": "succeeded"/"failed"
-    """
     examples = examples or []
-    return asyncio.get_event_loop().run_until_complete(
-        _generate_all(prompt, columns, num_rows, examples, params)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(
+        _generate_all(prompt, columns, num_rows, examples, params, on_row)
     )

@@ -239,6 +239,7 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [streamProgress, setStreamProgress] = useState(null);
   const [copyMsg, setCopyMsg] = useState('');
   const [history, setHistory] = useState(loadHistory);
   const [showHistory, setShowHistory] = useState(false);
@@ -274,6 +275,7 @@ export default function App() {
     setResult(null);
     setError(null);
     setLoading(true);
+    setStreamProgress(null);
 
     const body = {
       task_type: taskType,
@@ -285,23 +287,54 @@ export default function App() {
     };
 
     try {
-      const { data } = await axios.post(`${API_BASE}/public/generate`, body, {
+      const resp = await fetch(`${API_BASE}/public/generate/stream`, {
+        method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-      setResult(data);
-      const entry = {
-        ts: new Date().toISOString(),
-        task_type: taskType,
-        num_rows: Number(numRows),
-        preview: columns.split(',')[0].trim(),
-        body,
-      };
-      saveHistory(entry);
-      setHistory(loadHistory());
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        throw new Error(err.error || resp.statusText);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const accumulatedRows = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let event;
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (event.type === 'progress') {
+            accumulatedRows.push(event.data);
+            setStreamProgress({ completed: event.row + 1, total: event.total });
+          } else if (event.type === 'done') {
+            const data = event.data && event.data.length ? event.data : accumulatedRows;
+            setResult({ data });
+            saveHistory({ ts: new Date().toISOString(), task_type: taskType, num_rows: Number(numRows), preview: columns.split(',')[0].trim(), body });
+            setHistory(loadHistory());
+            return;
+          } else if (event.type === 'error') {
+            throw new Error(event.message);
+          }
+        }
+      }
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.message);
     } finally {
       setLoading(false);
+      setStreamProgress(null);
     }
   };
 
@@ -466,8 +499,26 @@ export default function App() {
       </form>
 
       {loading && (
-        <div style={{ marginTop: 16, color: '#555' }}>
-          ⏳ Generating data, please wait…
+        <div style={{ marginTop: 16 }}>
+          {streamProgress ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#555', marginBottom: 4 }}>
+                <span>Generating… {streamProgress.completed} / {streamProgress.total} rows</span>
+                <span>{Math.round((streamProgress.completed / streamProgress.total) * 100)}%</span>
+              </div>
+              <div style={{ height: 8, background: '#e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${(streamProgress.completed / streamProgress.total) * 100}%`,
+                  background: '#1a73e8',
+                  borderRadius: 4,
+                  transition: 'width 0.2s ease',
+                }} />
+              </div>
+            </>
+          ) : (
+            <div style={{ color: '#555', fontSize: 13 }}>⏳ Connecting…</div>
+          )}
         </div>
       )}
 
