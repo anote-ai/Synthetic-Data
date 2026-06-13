@@ -52,6 +52,15 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/public/generate/task-types", methods=["GET"])
+def list_task_types():
+    """Return generation task types supported by the public API."""
+    return jsonify({
+        "task_types": sorted(VALID_TASK_TYPES),
+        "max_rows_per_request": MAX_ROWS,
+    })
+
+
 @app.route("/public/generate", methods=["POST"])
 def generate():
     if not request.is_json:

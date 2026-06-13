@@ -12,6 +12,25 @@ class TestHealthEndpoint:
         assert data["status"] == "ok"
 
 
+class TestTaskTypesEndpoint:
+    def test_task_types_are_discoverable(self, client):
+        resp = client.get("/public/generate/task-types")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["task_types"] == [
+            "agent",
+            "audio",
+            "code",
+            "image",
+            "language",
+            "pii",
+            "tabular",
+            "text",
+            "video",
+        ]
+        assert data["max_rows_per_request"] == 100
+
+
 class TestValidation:
     def test_missing_task_type(self, client):
         resp = client.post("/public/generate", json={
