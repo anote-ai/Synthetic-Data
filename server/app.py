@@ -217,14 +217,11 @@ def generate_quality():
 
 @app.route("/public/generate/stream", methods=["POST"])
 def generate_stream():
-    """
-    SSE endpoint — streams rows one-by-one as they are generated.
-
-    Same request body as POST /public/generate.
-    Response: text/event-stream with one 'data: <json>' line per row,
-    ending with {"type": "done", "total_rows": N}.
-    """
+    """SSE endpoint — same request body as /public/generate, streams rows as they complete."""
     import json as _json
+    import queue as _queue
+    import threading
+    import inspect
     from api_endpoints.handler import _resolve_generator
 
     if not request.is_json:
@@ -248,14 +245,51 @@ def generate_stream():
         if generator_fn is None:
             yield f'data: {_json.dumps({"type": "error", "message": f"Unsupported task_type: {task_type}"})}\n\n'
             return
+
         try:
-            rows = generator_fn(prompt, columns, num_rows, examples, params)
-        except Exception as e:
-            yield f'data: {_json.dumps({"type": "error", "message": str(e)})}\n\n'
-            return
-        for i, row in enumerate(rows):
-            yield f'data: {_json.dumps({"type": "progress", "row": i, "total": len(rows), "data": row})}\n\n'
-        yield f'data: {_json.dumps({"type": "done", "total_rows": len(rows)})}\n\n'
+            sig = inspect.signature(generator_fn)
+            supports_on_row = "on_row" in sig.parameters
+        except (ValueError, TypeError):
+            supports_on_row = False
+
+        row_queue = _queue.Queue()
+        rows_via_callback = []
+
+        def on_row(row):
+            rows_via_callback.append(row)
+            row_queue.put(row)
+
+        def run_generator():
+            try:
+                if supports_on_row:
+                    result = generator_fn(prompt, columns, num_rows, examples, params, on_row=on_row)
+                    # Fallback: if generator returned a list without calling on_row (e.g. in tests)
+                    if not rows_via_callback and result:
+                        for row in result:
+                            row_queue.put(row)
+                else:
+                    for row in (generator_fn(prompt, columns, num_rows, examples, params) or []):
+                        row_queue.put(row)
+            except Exception as e:
+                row_queue.put({"__stream_error__": str(e)})
+            finally:
+                row_queue.put(None)  # sentinel
+
+        threading.Thread(target=run_generator, daemon=True).start()
+
+        row_index = 0
+        all_rows = []
+        while True:
+            item = row_queue.get()
+            if item is None:
+                yield f'data: {_json.dumps({"type": "done", "total_rows": len(all_rows), "data": all_rows})}\n\n'
+                break
+            if isinstance(item, dict) and "__stream_error__" in item:
+                yield f'data: {_json.dumps({"type": "error", "message": item["__stream_error__"]})}\n\n'
+                break
+            all_rows.append(item)
+            yield f'data: {_json.dumps({"type": "progress", "row": row_index, "total": num_rows, "data": item})}\n\n'
+            row_index += 1
 
     return Response(
         stream_with_context(event_stream()),
