@@ -360,3 +360,7 @@ def cancel_job(job_id):
     if job is None:
         return jsonify({"error": f"Job '{job_id}' not found"}), 404
     return jsonify(job)
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

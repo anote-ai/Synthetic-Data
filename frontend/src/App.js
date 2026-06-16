@@ -47,6 +47,20 @@ const TASK_PARAMS = {
   ],
 };
 
+// ── Prompt templates ──────────────────────────────────────────────────────────
+
+const TEMPLATES = [
+  { id: 'sentiment',      taskType: 'text', title: 'Sentiment Analysis',      columns: 'text,label',          prompt: 'Generate customer reviews with positive, negative, and neutral sentiment about a SaaS product' },
+  { id: 'support-intent', taskType: 'text', title: 'Support Ticket Intent',   columns: 'ticket_text,category', prompt: 'Generate customer support tickets classified by intent: billing, technical issue, feature request, account access' },
+  { id: 'email-priority', taskType: 'text', title: 'Email Priority',          columns: 'email_text,priority',  prompt: 'Generate work emails classified as urgent, normal, or low priority' },
+  { id: 'product-faq',    taskType: 'text', title: 'Product FAQ',             columns: 'question,answer',      prompt: "Generate Q&A pairs about a B2B SaaS product's features and pricing" },
+  { id: 'tech-qa',        taskType: 'text', title: 'Technical Q&A',           columns: 'question,answer',      prompt: 'Generate Q&A pairs a developer might ask about a REST API' },
+  { id: 'medical-ner',    taskType: 'text', title: 'Medical Records (NER)',   columns: 'clinical_note,entities', prompt: 'Generate clinical notes containing patient names, medications, dosages, and diagnoses for NER training' },
+  { id: 'financial-ner',  taskType: 'text', title: 'Financial News (NER)',    columns: 'sentence,entities',    prompt: 'Generate financial news sentences containing company names, dollar amounts, and dates' },
+  { id: 'legal-ner',      taskType: 'text', title: 'Legal Contracts (NER)',   columns: 'clause,entities',      prompt: 'Generate contract clauses containing party names, dates, and obligation types' },
+  { id: 'pii-test',       taskType: 'pii',  title: 'PII Test Data',           columns: 'text,pii_types',       prompt: 'Generate realistic but fake records containing names, emails, phone numbers, and addresses for testing redaction pipelines' },
+];
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function toCSV(rows) {
@@ -89,6 +103,24 @@ function saveHistory(entry) {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function TemplateSelector({ onSelect }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+      {TEMPLATES.map(t => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => onSelect(t)}
+          title={t.prompt}
+          style={{ padding: '3px 10px', fontSize: 12, background: '#f0f4ff', border: '1px solid #c5d3f5', borderRadius: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          {t.title}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function ParamField({ spec, value, onChange }) {
   const id = `param-${spec.key}`;
@@ -243,10 +275,18 @@ export default function App() {
   const [copyMsg, setCopyMsg] = useState('');
   const [history, setHistory] = useState(loadHistory);
   const [showHistory, setShowHistory] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(true);
   const [validationErrors, setValidationErrors] = useState({});
 
   // Reset params when task type changes
   useEffect(() => { setParams({}); }, [taskType]);
+
+  const applyTemplate = useCallback((t) => {
+    setTaskType(t.taskType);
+    setPrompt(t.prompt);
+    setColumns(t.columns);
+    setShowTemplates(false);
+  }, []);
 
   const setParam = useCallback((key, val) => {
     setParams(p => ({ ...p, [key]: val }));
@@ -426,7 +466,13 @@ export default function App() {
         </select>
 
         {/* Prompt */}
-        <label htmlFor="prompt" style={{ fontSize: 12, color: '#555' }}>Prompt</label>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+          <label htmlFor="prompt" style={{ fontSize: 12, color: '#555' }}>Prompt</label>
+          <button type="button" onClick={() => setShowTemplates(s => !s)} style={{ fontSize: 11, color: '#1a73e8', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            {showTemplates ? 'Hide templates' : 'Templates'}
+          </button>
+        </div>
+        {showTemplates && <TemplateSelector onSelect={applyTemplate} />}
         <textarea
           id="prompt"
           placeholder="Describe the dataset you want to generate"
