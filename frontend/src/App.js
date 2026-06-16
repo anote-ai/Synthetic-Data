@@ -258,6 +258,93 @@ function ResultTable({ rows }) {
   );
 }
 
+function QualityReport({ quality }) {
+  if (!quality) return null;
+
+  const { total_rows, unique_rows, duplicates_removed, avg_completeness, lexical_diversity, label_balance } = quality;
+
+  const suggestions = [];
+  if (duplicates_removed > 0)
+    suggestions.push(`${duplicates_removed} duplicate row${duplicates_removed > 1 ? 's' : ''} detected — use the deduplication export to clean them.`);
+  if (avg_completeness < 0.9)
+    suggestions.push(`Completeness is ${Math.round(avg_completeness * 100)}% — some rows have empty values.`);
+  if (lexical_diversity != null && lexical_diversity < 0.3)
+    suggestions.push('Low lexical diversity — generated text may be repetitive. Try a more varied prompt.');
+  if (label_balance) {
+    for (const [col, counts] of Object.entries(label_balance)) {
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      const [topVal, topCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      if (topCount / total > 0.6)
+        suggestions.push(`"${col}" is imbalanced — "${topVal}" appears in ${Math.round(topCount / total * 100)}% of rows.`);
+    }
+  }
+
+  const Meter = ({ pct, warn }) => (
+    <div style={{ display: 'inline-block', width: 80, height: 6, background: '#e0e0e0', borderRadius: 3, overflow: 'hidden', marginLeft: 6, verticalAlign: 'middle' }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: warn ? '#ff9800' : '#4caf50', borderRadius: 3 }} />
+    </div>
+  );
+
+  const uniquePct = Math.round(unique_rows / total_rows * 100);
+  const compPct = Math.round(avg_completeness * 100);
+  const divPct = lexical_diversity != null ? Math.round(lexical_diversity * 100) : null;
+
+  return (
+    <div style={{ marginTop: 16, padding: '12px 16px', border: '1px solid #e0e0e0', borderRadius: 6, fontSize: 13 }}>
+      <div style={{ fontWeight: 600, marginBottom: 10 }}>Quality Report</div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div>
+          <span style={{ color: uniquePct === 100 ? 'green' : '#e67e22' }}>{uniquePct === 100 ? '✓' : '!'}</span>
+          {' '}{unique_rows} / {total_rows} unique rows
+          {duplicates_removed > 0 && <span style={{ color: '#e67e22', marginLeft: 6 }}>({duplicates_removed} duplicate{duplicates_removed > 1 ? 's' : ''})</span>}
+        </div>
+        <div>
+          <span style={{ color: compPct >= 90 ? 'green' : '#e67e22' }}>{compPct >= 90 ? '✓' : '!'}</span>
+          {' '}Completeness: {compPct}%
+          <Meter pct={compPct} warn={compPct < 90} />
+        </div>
+        {divPct != null && (
+          <div>
+            <span style={{ color: divPct >= 30 ? 'green' : '#e67e22' }}>{divPct >= 30 ? '✓' : '!'}</span>
+            {' '}Lexical diversity: {divPct}%
+            <Meter pct={divPct} warn={divPct < 30} />
+          </div>
+        )}
+      </div>
+
+      {label_balance && Object.keys(label_balance).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {Object.entries(label_balance).map(([col, counts]) => {
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+            return (
+              <div key={col} style={{ marginBottom: 8 }}>
+                <div style={{ color: '#555', marginBottom: 4 }}>Distribution: <strong>{col}</strong></div>
+                {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([val, count]) => (
+                  <div key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                    <span style={{ width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#333' }} title={val}>{val}</span>
+                    <div style={{ width: 140, height: 12, background: '#e0e0e0', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.round(count / total * 100)}%`, height: '100%', background: '#1a73e8', borderRadius: 3 }} />
+                    </div>
+                    <span style={{ color: '#666', minWidth: 48 }}>{count} ({Math.round(count / total * 100)}%)</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div style={{ marginTop: 10, padding: '8px 10px', background: '#fffbf0', border: '1px solid #ffe58f', borderRadius: 4 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: '#8a6d00' }}>Suggestions</div>
+          {suggestions.map((s, i) => <div key={i} style={{ color: '#5a4500' }}>• {s}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -277,6 +364,7 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showTemplates, setShowTemplates] = useState(true);
   const [validationErrors, setValidationErrors] = useState({});
+  const [quality, setQuality] = useState(null);
 
   // Reset params when task type changes
   useEffect(() => { setParams({}); }, [taskType]);
@@ -316,6 +404,7 @@ export default function App() {
     setError(null);
     setLoading(true);
     setStreamProgress(null);
+    setQuality(null);
 
     const body = {
       task_type: taskType,
@@ -364,6 +453,11 @@ export default function App() {
             setResult({ data });
             saveHistory({ ts: new Date().toISOString(), task_type: taskType, num_rows: Number(numRows), preview: columns.split(',')[0].trim(), body });
             setHistory(loadHistory());
+            fetch(`${API_BASE}/public/generate/quality`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data, prompt: body.prompt }),
+            }).then(r => r.ok ? r.json() : null).then(r => r && setQuality(r.quality)).catch(() => {});
             return;
           } else if (event.type === 'error') {
             throw new Error(event.message);
@@ -594,6 +688,7 @@ export default function App() {
             </div>
           </div>
           <ResultTable rows={result.data} />
+          <QualityReport quality={quality} />
         </div>
       )}
     </div>
