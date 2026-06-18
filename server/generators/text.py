@@ -1,7 +1,4 @@
-"""
-Text synthetic data generator.
-Uses OpenAI GPT-4o-mini to generate structured tabular text data.
-"""
+"""Text synthetic data generator backed by OpenAI JSON-mode responses."""
 import os
 import json
 import asyncio
@@ -28,10 +25,10 @@ def _get_client():
 def _build_system_prompt(columns: List[str], prompt: str, examples: List[dict]) -> str:
     column_desc = ", ".join(f'"{c}"' for c in columns)
     system = (
-        f"You are a synthetic data generator. Generate realistic, diverse, high-quality data rows.\n"
+        "You are a synthetic data generator. Generate realistic, diverse, high-quality data rows.\n"
         f"Task context: {prompt}\n"
-        f"Each row must be a JSON object with exactly these keys: {column_desc}.\n"
-        f"Return ONLY a JSON array of objects — no markdown, no explanation, no code fences.\n"
+        f"Each response must be one JSON object with exactly these keys: {column_desc}.\n"
+        "Return ONLY the JSON object. Do not include markdown, comments, arrays, or extra keys.\n"
     )
     if examples:
         example_str = json.dumps(examples[:3], ensure_ascii=False)
@@ -40,30 +37,43 @@ def _build_system_prompt(columns: List[str], prompt: str, examples: List[dict]) 
     return system
 
 
-def _build_user_prompt(columns: List[str], batch_size: int) -> str:
-    return f"Generate exactly {batch_size} diverse and realistic rows. Return a JSON array with {batch_size} objects."
+def _build_user_prompt(columns: List[str], recent_rows: Optional[List[dict]] = None) -> str:
+    prompt = (
+        "Generate 1 new synthetic row. "
+        f"The JSON object must include these keys: {', '.join(columns)}."
+    )
+    if recent_rows:
+        prompt += (
+            "\nAvoid duplicating these recently generated rows:\n"
+            f"{json.dumps(recent_rows[-5:], ensure_ascii=False)}"
+        )
+    return prompt
 
 
-def _extract_json(raw: str) -> list:
-    """Extract JSON array from LLM response, handling markdown code blocks."""
-    # Strip markdown fences
+def _extract_json_object(raw: str) -> dict:
+    """Extract one JSON object from an LLM response, handling markdown code blocks."""
     cleaned = re.sub(r"```(?:json)?", "", raw).strip()
-    # Find JSON array
-    match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if match:
         return json.loads(match.group())
-    return json.loads(cleaned)
+    parsed = json.loads(cleaned)
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected a JSON object")
+    return parsed
 
 
-async def _generate_batch(
+def _normalize_row(row: dict, columns: List[str]) -> dict:
+    return {col: row.get(col, "") for col in columns} | {"status": "succeeded"}
+
+
+async def _generate_row(
     client,
     system_prompt: str,
-    user_prompt: str,
     columns: List[str],
-    batch_size: int,
     semaphore: asyncio.Semaphore,
+    recent_rows: List[dict],
     model: str = MODEL,
-) -> List[dict]:
+) -> dict:
     async with semaphore:
         for attempt in range(MAX_RETRIES):
             try:
@@ -71,28 +81,23 @@ async def _generate_batch(
                     model=model,
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": _build_user_prompt(columns, recent_rows)},
                     ],
+                    response_format={"type": "json_object"},
                     temperature=0.9,
                 )
                 raw = response.choices[0].message.content.strip()
-                rows = _extract_json(raw)
-                # Normalize: ensure all columns present
-                normalized = []
-                for row in rows[:batch_size]:
-                    normalized.append({
-                        col: row.get(col, "") for col in columns
-                    } | {"status": "succeeded"})
-                return normalized
-            except json.JSONDecodeError as e:
+                row = _extract_json_object(raw)
+                return _normalize_row(row, columns)
+            except (json.JSONDecodeError, ValueError) as e:
                 if attempt == MAX_RETRIES - 1:
-                    return [{"status": "failed", "error": f"JSON parse error after {MAX_RETRIES} attempts: {e}"} for _ in range(batch_size)]
+                    return {"status": "failed", "error": f"JSON parse error after {MAX_RETRIES} attempts: {e}"}
                 await asyncio.sleep(2 ** attempt)
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
-                    return [{"status": "failed", "error": str(e)} for _ in range(batch_size)]
+                    return {"status": "failed", "error": str(e)}
                 await asyncio.sleep(2 ** attempt)
-    return [{"status": "failed", "error": "Unknown error"} for _ in range(batch_size)]
+    return {"status": "failed", "error": "Unknown error"}
 
 
 async def _generate_all(
@@ -104,7 +109,6 @@ async def _generate_all(
     on_row=None,
 ) -> List[dict]:
     params = params or {}
-    batch_size = min(params.get("batch_size", 10), 20)
     concurrency = min(params.get("concurrency", CONCURRENCY), 10)
     model_override = params.get("model", MODEL)
 
@@ -113,28 +117,23 @@ async def _generate_all(
 
     system_prompt = _build_system_prompt(columns, prompt, examples)
 
-    # Split into batches
-    batches = []
-    remaining = num_rows
-    while remaining > 0:
-        b = min(batch_size, remaining)
-        batches.append(b)
-        remaining -= b
-
-    tasks = []
-    for b in batches:
-        user_prompt = _build_user_prompt(columns, b)
-        tasks.append(_generate_batch(client, system_prompt, user_prompt, columns, b, semaphore, model_override))
-
     results = []
+    pending = set()
     with tqdm(total=num_rows, desc="Generating text rows") as pbar:
-        for coro in asyncio.as_completed(tasks):
-            batch_result = await coro
-            results.extend(batch_result)
-            pbar.update(len(batch_result))
-            if on_row:
-                for row in batch_result:
+        while len(results) + len(pending) < num_rows and len(pending) < concurrency:
+            pending.add(asyncio.create_task(_generate_row(client, system_prompt, columns, semaphore, results[-20:], model_override)))
+
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                row = task.result()
+                results.append(row)
+                pbar.update(1)
+                if on_row:
                     on_row(row)
+
+            while len(results) + len(pending) < num_rows and len(pending) < concurrency:
+                pending.add(asyncio.create_task(_generate_row(client, system_prompt, columns, semaphore, results[-20:], model_override)))
 
     return results[:num_rows]
 
