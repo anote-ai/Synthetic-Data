@@ -48,7 +48,7 @@ Synthetic-Data/
 │   ├── Dockerfile
 │   ├── api_endpoints/handler.py  # routes task_type → generator
 │   ├── generators/               # one file per modality
-│   │   ├── text.py               # stub (mock data)
+│   │   ├── text.py               # OpenAI JSON-mode text rows
 │   │   ├── image.py              # DALL-E 3 + YOLO11 detection
 │   │   ├── video.py              # Replicate async + GPT-4o Vision
 │   │   ├── audio.py              # faster-whisper TTS/ASR
