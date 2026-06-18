@@ -1,9 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 const HISTORY_KEY = 'anote_generation_history';
 const MAX_HISTORY = 10;
+
+const ROI_TASKS = {
+  classification: { label: 'Classification', labelsPerRow: 1, timePerRowMinutes: 0.6 },
+  ner: { label: 'NER', labelsPerRow: 4, timePerRowMinutes: 2.5 },
+  qa: { label: 'Q&A', labelsPerRow: 2, timePerRowMinutes: 2.0 },
+};
+
+const ROI_COMPLEXITY = {
+  simple: { label: 'Simple', multiplier: 1 },
+  medium: { label: 'Medium', multiplier: 2 },
+  complex: { label: 'Complex', multiplier: 4 },
+};
+
+const ROI_RATES = {
+  crowd: { low: 0.05, high: 0.50 },
+  expert: { low: 2.00, high: 10.00 },
+  synthetic: { low: 0.003, high: 0.03 },
+};
 
 // ── Task-specific param configs ───────────────────────────────────────────────
 
@@ -223,6 +240,125 @@ function ResultTable({ rows }) {
         </div>
       )}
     </div>
+  );
+}
+
+function formatUSD(value) {
+  return value < 100
+    ? value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+    : value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+function formatRange(low, high) {
+  return low === high ? formatUSD(low) : `${formatUSD(low)} - ${formatUSD(high)}`;
+}
+
+function formatManualTime(minutes) {
+  const days = Math.max(1, Math.ceil(minutes / (60 * 6)));
+  if (days < 10) return `${days} business day${days === 1 ? '' : 's'}`;
+  const weeks = Math.ceil(days / 5);
+  if (weeks < 8) return `${weeks} week${weeks === 1 ? '' : 's'}`;
+  return `${Math.ceil(weeks / 4)} month${weeks < 8 ? '' : 's'}`;
+}
+
+function RoiCalculator({ defaultRows }) {
+  const [rows, setRows] = useState(defaultRows || 1000);
+  const [task, setTask] = useState('classification');
+  const [complexity, setComplexity] = useState('medium');
+  const [showMethodology, setShowMethodology] = useState(false);
+
+  const safeRows = Math.max(1, Number(rows) || 1);
+  const taskSpec = ROI_TASKS[task];
+  const complexitySpec = ROI_COMPLEXITY[complexity];
+  const labelUnits = safeRows * taskSpec.labelsPerRow * complexitySpec.multiplier;
+  const manualMinutes = safeRows * taskSpec.timePerRowMinutes * complexitySpec.multiplier;
+  const syntheticCostLow = safeRows * ROI_RATES.synthetic.low;
+  const syntheticCostHigh = safeRows * ROI_RATES.synthetic.high;
+
+  const estimates = [
+    {
+      approach: 'Manual labeling (crowd)',
+      cost: formatRange(labelUnits * ROI_RATES.crowd.low, labelUnits * ROI_RATES.crowd.high),
+      time: formatManualTime(manualMinutes),
+    },
+    {
+      approach: 'Expert labeling (agency)',
+      cost: formatRange(labelUnits * ROI_RATES.expert.low, labelUnits * ROI_RATES.expert.high),
+      time: formatManualTime(manualMinutes * 2.5),
+    },
+    {
+      approach: 'Anote Synthetic Data',
+      cost: formatRange(syntheticCostLow, syntheticCostHigh),
+      time: '~5 minutes',
+    },
+  ];
+
+  return (
+    <section style={{ marginTop: 18, padding: '14px 16px', border: '1px solid #ddd', borderRadius: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 16 }}>ROI calculator</h3>
+          <div style={{ color: '#666', fontSize: 13, marginTop: 4 }}>Estimate manual labeling cost vs synthetic generation.</div>
+        </div>
+        <button type="button" onClick={() => setShowMethodology(v => !v)} style={{ fontSize: 12 }}>
+          {showMethodology ? 'Hide' : 'Show'} methodology
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 14 }}>
+        <label style={{ fontSize: 12, color: '#555' }}>
+          Rows needed
+          <input
+            type="number"
+            min={1}
+            value={rows}
+            onChange={e => setRows(e.target.value)}
+            style={{ width: '100%', marginTop: 4, padding: '6px 8px', boxSizing: 'border-box' }}
+          />
+        </label>
+        <label style={{ fontSize: 12, color: '#555' }}>
+          Task type
+          <select value={task} onChange={e => setTask(e.target.value)} style={{ width: '100%', marginTop: 4, padding: '6px 8px' }}>
+            {Object.entries(ROI_TASKS).map(([key, spec]) => <option key={key} value={key}>{spec.label}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: '#555' }}>
+          Labeling complexity
+          <select value={complexity} onChange={e => setComplexity(e.target.value)} style={{ width: '100%', marginTop: 4, padding: '6px 8px' }}>
+            {Object.entries(ROI_COMPLEXITY).map(([key, spec]) => <option key={key} value={key}>{spec.label}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div style={{ overflowX: 'auto', marginTop: 14 }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '6px 8px', background: '#f5f5f5' }}>Approach</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', background: '#f5f5f5' }}>Cost</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', background: '#f5f5f5' }}>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {estimates.map(row => (
+              <tr key={row.approach}>
+                <td style={{ padding: '7px 8px', borderBottom: '1px solid #eee' }}>{row.approach}</td>
+                <td style={{ padding: '7px 8px', borderBottom: '1px solid #eee' }}>{row.cost}</td>
+                <td style={{ padding: '7px 8px', borderBottom: '1px solid #eee' }}>{row.time}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {showMethodology && (
+        <div style={{ marginTop: 10, color: '#666', fontSize: 12, lineHeight: 1.5 }}>
+          Uses {taskSpec.labelsPerRow} label unit{taskSpec.labelsPerRow === 1 ? '' : 's'} per row for {taskSpec.label.toLowerCase()}
+          {' '}and a {complexitySpec.multiplier}x complexity multiplier. Crowd labeling is estimated at $0.05-$0.50 per label,
+          expert labeling at $2-$10 per label, and synthetic generation at $0.003-$0.03 per row. These defaults are editable in code as market rates change.
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -497,6 +633,8 @@ export default function App() {
           {loading ? 'Generating…' : 'Generate'}
         </button>
       </form>
+
+      <RoiCalculator defaultRows={Number(numRows) || 1000} />
 
       {loading && (
         <div style={{ marginTop: 16 }}>

@@ -36,6 +36,14 @@ pip install -r requirements.txt
 python app.py          # http://localhost:5000
 ```
 
+Run the React frontend manually in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm start              # http://localhost:3000
+```
+
 ---
 
 ## Repository Structure
