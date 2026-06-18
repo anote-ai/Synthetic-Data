@@ -2,6 +2,7 @@
 import json
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
+from types import SimpleNamespace
 
 
 class TestHealthEndpoint:
@@ -92,6 +93,40 @@ class TestTextGenerator:
             from generators.text import generate_text_data
             results = generate_text_data("test prompt", ["col1"], 1, [])
             assert all(r["status"] == "failed" for r in results)
+
+    def test_text_generator_uses_json_object_mode(self):
+        response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"question":"What is Python?","answer":"A language."}')
+                )
+            ]
+        )
+        create = AsyncMock(return_value=response)
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            mock_openai.return_value.chat.completions.create = create
+            from generators.text import generate_text_data
+            results = generate_text_data(
+                "Generate Q&A pairs",
+                ["question", "answer"],
+                1,
+                [{"question": "What is a list?", "answer": "An ordered collection"}],
+            )
+
+        assert results == [{"question": "What is Python?", "answer": "A language.", "status": "succeeded"}]
+        assert create.await_args.kwargs["response_format"] == {"type": "json_object"}
+
+    def test_text_generator_retries_invalid_json(self):
+        bad_response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="not json"))])
+        good_response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"col1":"value"}'))])
+        create = AsyncMock(side_effect=[bad_response, good_response])
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            mock_openai.return_value.chat.completions.create = create
+            from generators.text import generate_text_data
+            results = generate_text_data("test prompt", ["col1"], 1, [])
+
+        assert results == [{"col1": "value", "status": "succeeded"}]
+        assert create.await_count == 2
 
 
 class TestImageGenerator:
