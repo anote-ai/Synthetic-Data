@@ -275,6 +275,194 @@ function ResultTable({ rows }) {
   );
 }
 
+function formatUSD(value) {
+  return value < 100
+    ? value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+    : value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+function formatRange(low, high) {
+  return low === high ? formatUSD(low) : `${formatUSD(low)} - ${formatUSD(high)}`;
+}
+
+function formatManualTime(minutes) {
+  const days = Math.max(1, Math.ceil(minutes / (60 * 6)));
+  if (days < 10) return `${days} business day${days === 1 ? '' : 's'}`;
+  const weeks = Math.ceil(days / 5);
+  if (weeks < 8) return `${weeks} week${weeks === 1 ? '' : 's'}`;
+  return `${Math.ceil(weeks / 4)} month${weeks < 8 ? '' : 's'}`;
+}
+
+function RoiCalculator({ defaultRows }) {
+  const [rows, setRows] = useState(defaultRows || 1000);
+  const [task, setTask] = useState('classification');
+  const [complexity, setComplexity] = useState('medium');
+  const [showMethodology, setShowMethodology] = useState(false);
+
+  const safeRows = Math.max(1, Number(rows) || 1);
+  const taskSpec = ROI_TASKS[task];
+  const complexitySpec = ROI_COMPLEXITY[complexity];
+  const labelUnits = safeRows * taskSpec.labelsPerRow * complexitySpec.multiplier;
+  const manualMinutes = safeRows * taskSpec.timePerRowMinutes * complexitySpec.multiplier;
+  const syntheticCostLow = safeRows * ROI_RATES.synthetic.low;
+  const syntheticCostHigh = safeRows * ROI_RATES.synthetic.high;
+
+  const estimates = [
+    { approach: 'Manual labeling (crowd)', cost: formatRange(labelUnits * ROI_RATES.crowd.low, labelUnits * ROI_RATES.crowd.high), time: formatManualTime(manualMinutes) },
+    { approach: 'Expert labeling (agency)', cost: formatRange(labelUnits * ROI_RATES.expert.low, labelUnits * ROI_RATES.expert.high), time: formatManualTime(manualMinutes * 2.5) },
+    { approach: 'Anote Synthetic Data', cost: formatRange(syntheticCostLow, syntheticCostHigh), time: '~5 minutes' },
+  ];
+
+  return (
+    <section style={{ marginTop: 18, padding: '14px 16px', border: '1px solid #ddd', borderRadius: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 16 }}>ROI calculator</h3>
+          <div style={{ color: '#666', fontSize: 13, marginTop: 4 }}>Estimate manual labeling cost vs synthetic generation.</div>
+        </div>
+        <button type="button" onClick={() => setShowMethodology(v => !v)} style={{ fontSize: 12 }}>
+          {showMethodology ? 'Hide' : 'Show'} methodology
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 14 }}>
+        <label style={{ fontSize: 12, color: '#555' }}>
+          Rows needed
+          <input type="number" min={1} value={rows} onChange={e => setRows(e.target.value)} style={{ width: '100%', marginTop: 4, padding: '6px 8px', boxSizing: 'border-box' }} />
+        </label>
+        <label style={{ fontSize: 12, color: '#555' }}>
+          Task type
+          <select value={task} onChange={e => setTask(e.target.value)} style={{ width: '100%', marginTop: 4, padding: '6px 8px' }}>
+            {Object.entries(ROI_TASKS).map(([key, spec]) => <option key={key} value={key}>{spec.label}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: '#555' }}>
+          Labeling complexity
+          <select value={complexity} onChange={e => setComplexity(e.target.value)} style={{ width: '100%', marginTop: 4, padding: '6px 8px' }}>
+            {Object.entries(ROI_COMPLEXITY).map(([key, spec]) => <option key={key} value={key}>{spec.label}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div style={{ overflowX: 'auto', marginTop: 14 }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '6px 8px', background: '#f5f5f5' }}>Approach</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', background: '#f5f5f5' }}>Cost</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', background: '#f5f5f5' }}>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {estimates.map(row => (
+              <tr key={row.approach}>
+                <td style={{ padding: '7px 8px', borderBottom: '1px solid #eee' }}>{row.approach}</td>
+                <td style={{ padding: '7px 8px', borderBottom: '1px solid #eee' }}>{row.cost}</td>
+                <td style={{ padding: '7px 8px', borderBottom: '1px solid #eee' }}>{row.time}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {showMethodology && (
+        <div style={{ marginTop: 10, color: '#666', fontSize: 12, lineHeight: 1.5 }}>
+          Uses {taskSpec.labelsPerRow} label unit{taskSpec.labelsPerRow === 1 ? '' : 's'} per row for {taskSpec.label.toLowerCase()}
+          {' '}and a {complexitySpec.multiplier}x complexity multiplier. Crowd labeling is estimated at $0.05–$0.50 per label,
+          expert labeling at $2–$10 per label, and synthetic generation at $0.003–$0.03 per row.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function QualityReport({ quality }) {
+  if (!quality) return null;
+
+  const { total_rows, unique_rows, duplicates_removed, avg_completeness, lexical_diversity, label_balance } = quality;
+
+  const suggestions = [];
+  if (duplicates_removed > 0)
+    suggestions.push(`${duplicates_removed} duplicate row${duplicates_removed > 1 ? 's' : ''} detected — use the deduplication export to clean them.`);
+  if (avg_completeness < 0.9)
+    suggestions.push(`Completeness is ${Math.round(avg_completeness * 100)}% — some rows have empty values.`);
+  if (lexical_diversity != null && lexical_diversity < 0.3)
+    suggestions.push('Low lexical diversity — generated text may be repetitive. Try a more varied prompt.');
+  if (label_balance) {
+    for (const [col, counts] of Object.entries(label_balance)) {
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      const [topVal, topCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      if (topCount / total > 0.6)
+        suggestions.push(`"${col}" is imbalanced — "${topVal}" appears in ${Math.round(topCount / total * 100)}% of rows.`);
+    }
+  }
+
+  const Meter = ({ pct, warn }) => (
+    <div style={{ display: 'inline-block', width: 80, height: 6, background: '#e0e0e0', borderRadius: 3, overflow: 'hidden', marginLeft: 6, verticalAlign: 'middle' }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: warn ? '#ff9800' : '#4caf50', borderRadius: 3 }} />
+    </div>
+  );
+
+  const uniquePct = Math.round(unique_rows / total_rows * 100);
+  const compPct = Math.round(avg_completeness * 100);
+  const divPct = lexical_diversity != null ? Math.round(lexical_diversity * 100) : null;
+
+  return (
+    <div style={{ marginTop: 16, padding: '12px 16px', border: '1px solid #e0e0e0', borderRadius: 6, fontSize: 13 }}>
+      <div style={{ fontWeight: 600, marginBottom: 10 }}>Quality Report</div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div>
+          <span style={{ color: uniquePct === 100 ? 'green' : '#e67e22' }}>{uniquePct === 100 ? '✓' : '!'}</span>
+          {' '}{unique_rows} / {total_rows} unique rows
+          {duplicates_removed > 0 && <span style={{ color: '#e67e22', marginLeft: 6 }}>({duplicates_removed} duplicate{duplicates_removed > 1 ? 's' : ''})</span>}
+        </div>
+        <div>
+          <span style={{ color: compPct >= 90 ? 'green' : '#e67e22' }}>{compPct >= 90 ? '✓' : '!'}</span>
+          {' '}Completeness: {compPct}%
+          <Meter pct={compPct} warn={compPct < 90} />
+        </div>
+        {divPct != null && (
+          <div>
+            <span style={{ color: divPct >= 30 ? 'green' : '#e67e22' }}>{divPct >= 30 ? '✓' : '!'}</span>
+            {' '}Lexical diversity: {divPct}%
+            <Meter pct={divPct} warn={divPct < 30} />
+          </div>
+        )}
+      </div>
+
+      {label_balance && Object.keys(label_balance).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {Object.entries(label_balance).map(([col, counts]) => {
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+            return (
+              <div key={col} style={{ marginBottom: 8 }}>
+                <div style={{ color: '#555', marginBottom: 4 }}>Distribution: <strong>{col}</strong></div>
+                {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([val, count]) => (
+                  <div key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                    <span style={{ width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#333' }} title={val}>{val}</span>
+                    <div style={{ width: 140, height: 12, background: '#e0e0e0', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.round(count / total * 100)}%`, height: '100%', background: '#1a73e8', borderRadius: 3 }} />
+                    </div>
+                    <span style={{ color: '#666', minWidth: 48 }}>{count} ({Math.round(count / total * 100)}%)</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div style={{ marginTop: 10, padding: '8px 10px', background: '#fffbf0', border: '1px solid #ffe58f', borderRadius: 4 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: '#8a6d00' }}>Suggestions</div>
+          {suggestions.map((s, i) => <div key={i} style={{ color: '#5a4500' }}>• {s}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
