@@ -2,8 +2,9 @@
 import os
 import json
 import asyncio
+import random
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import openai
 from tqdm.auto import tqdm
 import nest_asyncio
@@ -37,17 +38,47 @@ def _build_system_prompt(columns: List[str], prompt: str, examples: List[dict]) 
     return system
 
 
-def _build_user_prompt(columns: List[str], recent_rows: Optional[List[dict]] = None) -> str:
+def _build_user_prompt(
+    columns: List[str],
+    recent_rows: Optional[List[dict]] = None,
+    class_target: Optional[Tuple[str, str]] = None,
+) -> str:
     prompt = (
         "Generate 1 new synthetic row. "
         f"The JSON object must include these keys: {', '.join(columns)}."
     )
+    if class_target:
+        col, val = class_target
+        prompt += f'\nThe value of "{col}" for this row MUST be exactly: "{val}".'
     if recent_rows:
         prompt += (
             "\nAvoid duplicating these recently generated rows:\n"
             f"{json.dumps(recent_rows[-5:], ensure_ascii=False)}"
         )
     return prompt
+
+
+def _validate_class_distribution(
+    class_dist: dict, columns: List[str]
+) -> Optional[str]:
+    """Return an error string if class_distribution is invalid, else None."""
+    if not isinstance(class_dist, dict) or not class_dist:
+        return "class_distribution must be a non-empty dict"
+    if len(class_dist) > 1:
+        return (
+            "class_distribution may target only one column per request; "
+            f"got {list(class_dist.keys())}"
+        )
+    col = next(iter(class_dist))
+    if col not in columns:
+        return f'class_distribution column "{col}" is not in requested columns {columns}'
+    val_counts = class_dist[col]
+    if not isinstance(val_counts, dict) or not val_counts:
+        return f'class_distribution["{col}"] must be a non-empty dict of {{label: count}}'
+    for label, count in val_counts.items():
+        if not isinstance(count, int) or count < 1:
+            return f'class_distribution["{col}"]["{label}"] must be a positive integer, got {count!r}'
+    return None
 
 
 def _extract_json_object(raw: str) -> dict:
@@ -73,6 +104,7 @@ async def _generate_row(
     semaphore: asyncio.Semaphore,
     recent_rows: List[dict],
     model: str = MODEL,
+    class_target: Optional[Tuple[str, str]] = None,
 ) -> dict:
     async with semaphore:
         for attempt in range(MAX_RETRIES):
@@ -81,14 +113,18 @@ async def _generate_row(
                     model=model,
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": _build_user_prompt(columns, recent_rows)},
+                        {"role": "user", "content": _build_user_prompt(columns, recent_rows, class_target)},
                     ],
                     response_format={"type": "json_object"},
                     temperature=0.9,
                 )
                 raw = response.choices[0].message.content.strip()
                 row = _extract_json_object(raw)
-                return _normalize_row(row, columns)
+                normalized = _normalize_row(row, columns)
+                if class_target:
+                    col, val = class_target
+                    normalized[col] = val
+                return normalized
             except (json.JSONDecodeError, ValueError) as e:
                 if attempt == MAX_RETRIES - 1:
                     return {"status": "failed", "error": f"JSON parse error after {MAX_RETRIES} attempts: {e}"}
@@ -111,17 +147,35 @@ async def _generate_all(
     params = params or {}
     concurrency = min(params.get("concurrency", CONCURRENCY), 10)
     model_override = params.get("model", MODEL)
+    class_dist = params.get("class_distribution")
 
+    if class_dist:
+        err = _validate_class_distribution(class_dist, columns)
+        if err:
+            return [{"status": "failed", "error": err}]
+        col, val_counts = next(iter(class_dist.items()))
+        targets: List[Optional[Tuple[str, str]]] = []
+        for val, count in val_counts.items():
+            targets.extend([(col, val)] * int(count))
+        random.shuffle(targets)
+    else:
+        targets = [None] * num_rows
+
+    total = len(targets)
     client = _get_client()
     semaphore = asyncio.Semaphore(concurrency)
-
     system_prompt = _build_system_prompt(columns, prompt, examples)
 
     results = []
     pending = set()
-    with tqdm(total=num_rows, desc="Generating text rows") as pbar:
-        while len(results) + len(pending) < num_rows and len(pending) < concurrency:
-            pending.add(asyncio.create_task(_generate_row(client, system_prompt, columns, semaphore, results[-20:], model_override)))
+    idx = 0
+
+    with tqdm(total=total, desc="Generating text rows") as pbar:
+        while idx < total and len(pending) < concurrency:
+            pending.add(asyncio.create_task(
+                _generate_row(client, system_prompt, columns, semaphore, results[-20:], model_override, targets[idx])
+            ))
+            idx += 1
 
         while pending:
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -132,10 +186,13 @@ async def _generate_all(
                 if on_row:
                     on_row(row)
 
-            while len(results) + len(pending) < num_rows and len(pending) < concurrency:
-                pending.add(asyncio.create_task(_generate_row(client, system_prompt, columns, semaphore, results[-20:], model_override)))
+            while idx < total and len(pending) < concurrency:
+                pending.add(asyncio.create_task(
+                    _generate_row(client, system_prompt, columns, semaphore, results[-20:], model_override, targets[idx])
+                ))
+                idx += 1
 
-    return results[:num_rows]
+    return results
 
 
 def generate_text_data(

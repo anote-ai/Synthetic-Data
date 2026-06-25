@@ -128,6 +128,71 @@ class TestTextGenerator:
         assert results == [{"col1": "value", "status": "succeeded"}]
         assert create.await_count == 2
 
+    def test_class_distribution_respects_counts(self):
+        """Generated rows match the requested per-label counts."""
+        def make_response(label):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(
+                    content=f'{{"text": "some text", "label": "{label}"}}'
+                ))]
+            )
+
+        # Return "positive" 3 times then "negative" 2 times — order doesn't
+        # matter because the enforced value overwrites whatever the LLM returns.
+        create = AsyncMock(return_value=make_response("positive"))
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            mock_openai.return_value.chat.completions.create = create
+            from generators.text import generate_text_data
+            results = generate_text_data(
+                "Generate sentiment data",
+                ["text", "label"],
+                num_rows=5,
+                examples=[],
+                params={"class_distribution": {"label": {"positive": 3, "negative": 2}}},
+            )
+
+        assert len(results) == 5
+        labels = [r["label"] for r in results]
+        assert labels.count("positive") == 3
+        assert labels.count("negative") == 2
+        assert all(r["status"] == "succeeded" for r in results)
+
+    def test_class_distribution_enforces_value_over_llm(self):
+        """The enforced value overwrites whatever the LLM actually returned."""
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content='{"text": "a review", "label": "WRONG"}'
+            ))]
+        )
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            mock_openai.return_value.chat.completions.create = AsyncMock(return_value=response)
+            from generators.text import generate_text_data
+            results = generate_text_data(
+                "Generate sentiment data",
+                ["text", "label"],
+                num_rows=1,
+                examples=[],
+                params={"class_distribution": {"label": {"negative": 1}}},
+            )
+
+        assert results == [{"text": "a review", "label": "negative", "status": "succeeded"}]
+
+    def test_class_distribution_unknown_column_returns_failed(self):
+        """Targeting a column not in the requested columns returns a failed row."""
+        with patch("openai.AsyncOpenAI"):
+            from generators.text import generate_text_data
+            results = generate_text_data(
+                "Generate data",
+                ["text", "label"],
+                num_rows=5,
+                examples=[],
+                params={"class_distribution": {"nonexistent_col": {"positive": 3}}},
+            )
+
+        assert len(results) == 1
+        assert results[0]["status"] == "failed"
+        assert "nonexistent_col" in results[0]["error"]
+
 
 class TestImageGenerator:
     def test_generate_image_mocked(self, client, valid_image_payload):
