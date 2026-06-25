@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import exampleDatasets from './exampleDatasets';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 const HISTORY_KEY = 'anote_generation_history';
@@ -394,9 +395,60 @@ function RoiCalculator({ defaultRows }) {
   );
 }
 
+function ExampleGallery() {
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem', fontFamily: 'Arial, sans-serif' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 18 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Example synthetic datasets</h2>
+          <p style={{ margin: '6px 0 0', color: '#555' }}>
+            Preview generated dataset schemas, sample rows, prompts, and download-ready CSV files.
+          </p>
+        </div>
+        <a href="/" style={{ fontSize: 13 }}>Generator</a>
+      </div>
+
+      <div style={{ display: 'grid', gap: 18 }}>
+        {exampleDatasets.map(dataset => {
+          const schema = Object.keys(dataset.data[0] || {});
+          const previewRows = dataset.data.map(row => ({ ...row, status: 'succeeded' }));
+          return (
+            <section key={dataset.slug} style={{ border: '1px solid #ddd', borderRadius: 4, padding: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18 }}>{dataset.title}</h3>
+                  <div style={{ marginTop: 4, color: '#666', fontSize: 13 }}>
+                    {dataset.rows.toLocaleString()} rows · {schema.join(', ')}
+                  </div>
+                </div>
+                <button
+                  onClick={() => downloadBlob(toCSV(previewRows), `${dataset.slug}.csv`, 'text/csv')}
+                  style={{ height: 32 }}
+                >
+                  Download CSV
+                </button>
+              </div>
+
+              <div style={{ marginTop: 12, fontSize: 13 }}>
+                <strong>Generation prompt:</strong> {dataset.prompt}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 13, color: '#555' }}>
+                <strong>Methodology:</strong> {dataset.methodology}
+              </div>
+
+              <ResultTable rows={previewRows} />
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const isExamplesPage = window.location.pathname === '/examples';
   const [apiKey, setApiKey] = useState('');
   const [taskType, setTaskType] = useState('text');
   const [prompt, setPrompt] = useState('');
@@ -543,13 +595,20 @@ export default function App() {
 
   const paramSpecs = TASK_PARAMS[taskType] || [];
 
+  if (isExamplesPage) {
+    return <ExampleGallery />;
+  }
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '2rem', fontFamily: 'Arial, sans-serif' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}>Anote Synthetic Data Generator</h2>
-        <button onClick={() => setShowHistory(h => !h)} style={{ fontSize: 12 }}>
-          {showHistory ? 'Hide' : 'Show'} History ({history.length})
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <a href="/examples" style={{ fontSize: 12 }}>Examples</a>
+          <button onClick={() => setShowHistory(h => !h)} style={{ fontSize: 12 }}>
+            {showHistory ? 'Hide' : 'Show'} History ({history.length})
+          </button>
+        </div>
       </div>
 
       {/* Generation history panel */}
