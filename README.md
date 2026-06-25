@@ -44,6 +44,9 @@ npm install
 npm start              # http://localhost:3000
 ```
 
+The frontend also includes an examples gallery at `http://localhost:3000/examples`
+with downloadable CSV previews for common synthetic dataset patterns.
+
 ---
 
 ## Repository Structure
