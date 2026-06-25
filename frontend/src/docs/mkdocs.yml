@@ -10,6 +10,7 @@ nav:
       - Overview: api-anote-generate/overview.md
       - Setup: api-anote-generate/setup.md
       - Generate: api-anote-generate/generate.md
+      - FAQ: Does Synthetic Data Work?: api-anote-generate/synthetic-data-faq.md
     - Synthetic Data SDK Examples:
       - Text Example: anote-api-generate-examples/text.md
       - Video Example: anote-api-generate-examples/video.md
