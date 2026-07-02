@@ -29,21 +29,29 @@ def save_version(
     params: dict,
     result_data: list,
     num_rows: int,
+    name: Optional[str] = None,
+    parent_version_id: Optional[str] = None,
+    examples: Optional[list] = None,
 ) -> str:
     """
     Persist a generation snapshot and return a UUID version_id.
     Never raises — on failure logs a warning and still returns a UUID.
     """
     version_id = str(uuid.uuid4())
+    examples = examples or []
     record = {
         "version_id": version_id,
         "user_email": user_email,
+        "name": name,
+        "parent_version_id": parent_version_id,
         "task_type": task_type,
         "prompt": prompt,
         "columns": columns,
+        "examples": examples,
         "params": params,
         "num_rows": num_rows,
         "row_count": len(result_data),
+        "quality_score": None,
         "status": "completed",
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "result_data": result_data,
@@ -62,13 +70,13 @@ def save_version(
             cursor = conn.cursor()
             cursor.execute(
                 """INSERT INTO generation_versions
-                   (version_id, user_email, task_type, prompt, columns, params,
-                    result_data, row_count, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   (version_id, user_email, name, parent_version_id, task_type, prompt,
+                    columns, examples, params, result_data, row_count, quality_score, status)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
-                    version_id, user_email, task_type, prompt,
-                    json.dumps(columns), json.dumps(params),
-                    json.dumps(result_data), len(result_data), "completed",
+                    version_id, user_email, name, parent_version_id, task_type, prompt,
+                    json.dumps(columns), json.dumps(examples), json.dumps(params),
+                    json.dumps(result_data), len(result_data), None, "completed",
                 ),
             )
             conn.commit()
@@ -77,6 +85,45 @@ def save_version(
         pass  # DB optional — file store is the fallback
 
     return version_id
+
+
+def update_version(version_id: str, **patch) -> Optional[dict]:
+    """
+    Patch mutable fields (name, quality_score) on an existing version.
+    Returns the updated record, or None if the version doesn't exist.
+    """
+    allowed = {"name", "quality_score"}
+    fields = {k: v for k, v in patch.items() if k in allowed}
+    if not fields:
+        return get_version(version_id)
+
+    record = None
+    try:
+        path = _versions_dir() / f"{version_id}.json"
+        if path.exists():
+            record = json.loads(path.read_text())
+            record.update(fields)
+            path.write_text(json.dumps(record, ensure_ascii=False, indent=2))
+    except Exception as e:
+        logger.warning("Could not update version file %s: %s", version_id, e)
+
+    try:
+        from database.db import get_db_connection
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            set_clause = ", ".join(f"{k} = %s" for k in fields)
+            values = [json.dumps(v) if k == "quality_score" else v for k, v in fields.items()]
+            cursor.execute(
+                f"UPDATE generation_versions SET {set_clause} WHERE version_id = %s",
+                (*values, version_id),
+            )
+            conn.commit()
+            conn.close()
+    except Exception:
+        pass
+
+    return record if record is not None else get_version(version_id)
 
 
 def get_version(version_id: str) -> Optional[dict]:
@@ -129,3 +176,34 @@ def list_versions(user_email: str, limit: int = 20) -> list:
     except Exception as e:
         logger.warning("Could not list versions: %s", e)
     return versions
+
+
+def diff_versions(version_id_a: str, version_id_b: str) -> Optional[dict]:
+    """
+    Compare two versions: metadata changes (prompt/columns/num_rows/params)
+    plus a row-level diff (rows only in a, only in b, or in both).
+    Returns None if either version doesn't exist.
+    """
+    a, b = get_version(version_id_a), get_version(version_id_b)
+    if a is None or b is None:
+        return None
+
+    metadata_changes = {}
+    for field in ("prompt", "columns", "num_rows", "params", "name"):
+        if a.get(field) != b.get(field):
+            metadata_changes[field] = {"from": a.get(field), "to": b.get(field)}
+
+    rows_a = [json.dumps(r, sort_keys=True) for r in a.get("result_data", [])]
+    rows_b = [json.dumps(r, sort_keys=True) for r in b.get("result_data", [])]
+    set_a, set_b = set(rows_a), set(rows_b)
+
+    return {
+        "version_a": version_id_a,
+        "version_b": version_id_b,
+        "metadata_changes": metadata_changes,
+        "row_count_a": len(rows_a),
+        "row_count_b": len(rows_b),
+        "rows_added": [json.loads(r) for r in set_b - set_a],
+        "rows_removed": [json.loads(r) for r in set_a - set_b],
+        "rows_unchanged": len(set_a & set_b),
+    }

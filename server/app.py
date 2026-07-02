@@ -109,6 +109,9 @@ def generate():
             params=body.get("params", {}),
             result_data=generated_data,
             num_rows=body.get("num_rows", 5),
+            name=body.get("dataset_name"),
+            parent_version_id=body.get("parent_version_id"),
+            examples=body.get("examples", []),
         )
         payload = result.get_json()
         payload["version_id"] = version_id
@@ -142,6 +145,71 @@ def get_version(version_id):
     if record is None:
         return jsonify({"error": f"Version '{version_id}' not found"}), 404
     return jsonify(record)
+
+
+@app.route("/public/generate/versions/<version_id>", methods=["PATCH"])
+def rename_version(version_id):
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    body = request.get_json(silent=True) or {}
+    patch = {k: v for k, v in body.items() if k in ("name", "quality_score")}
+    if not patch:
+        return jsonify({"error": "Nothing to update — provide 'name' and/or 'quality_score'"}), 422
+
+    from utils.versioning import get_version as _get, update_version as _update
+    if _get(version_id) is None:
+        return jsonify({"error": f"Version '{version_id}' not found"}), 404
+
+    record = _update(version_id, **patch)
+    return jsonify(record)
+
+
+@app.route("/public/generate/versions/<version_id>/diff", methods=["GET"])
+def diff_version(version_id):
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    against = request.args.get("against")
+    if not against:
+        return jsonify({"error": "Query param 'against' (a version_id) is required"}), 422
+
+    from utils.versioning import diff_versions as _diff
+    result = _diff(version_id, against)
+    if result is None:
+        return jsonify({"error": "One or both versions not found"}), 404
+    return jsonify(result)
+
+
+@app.route("/public/generate/versions/<version_id>/restore", methods=["POST"])
+def restore_version(version_id):
+    try:
+        user_email = extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    from utils.versioning import get_version as _get, save_version as _save
+    source = _get(version_id)
+    if source is None:
+        return jsonify({"error": f"Version '{version_id}' not found"}), 404
+
+    new_version_id = _save(
+        user_email=user_email,
+        task_type=source["task_type"],
+        prompt=source["prompt"],
+        columns=source["columns"],
+        params=source.get("params", {}),
+        result_data=source.get("result_data", []),
+        num_rows=source["num_rows"],
+        name=source.get("name"),
+        parent_version_id=version_id,
+        examples=source.get("examples", []),
+    )
+    return jsonify(_get(new_version_id))
 
 
 @app.route("/public/generate/export", methods=["POST"])
@@ -239,6 +307,8 @@ def generate_stream():
     columns = body.get("columns", [])
     examples = body.get("examples", [])
     params = body.get("params", {})
+    dataset_name = body.get("dataset_name")
+    parent_version_id = body.get("parent_version_id")
 
     def event_stream():
         generator_fn = _resolve_generator(task_type)
@@ -282,7 +352,24 @@ def generate_stream():
         while True:
             item = row_queue.get()
             if item is None:
-                yield f'data: {_json.dumps({"type": "done", "total_rows": len(all_rows), "data": all_rows})}\n\n'
+                version_id = None
+                try:
+                    from utils.versioning import save_version
+                    version_id = save_version(
+                        user_email=user_email,
+                        task_type=task_type,
+                        prompt=prompt,
+                        columns=columns,
+                        params=params,
+                        result_data=all_rows,
+                        num_rows=num_rows,
+                        name=dataset_name,
+                        parent_version_id=parent_version_id,
+                        examples=examples,
+                    )
+                except Exception as e:
+                    logger.warning("Versioning failed (non-fatal): %s", e)
+                yield f'data: {_json.dumps({"type": "done", "total_rows": len(all_rows), "data": all_rows, "version_id": version_id})}\n\n'
                 break
             if isinstance(item, dict) and "__stream_error__" in item:
                 yield f'data: {_json.dumps({"type": "error", "message": item["__stream_error__"]})}\n\n'
