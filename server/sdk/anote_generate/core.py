@@ -97,13 +97,13 @@ class Anote:
         Generate synthetic data rows.
 
         Args:
-            task_type: Modality to generate. One of: text, image, audio, video, agent, pii, tabular, code.
+            task_type: Modality to generate. One of: text, image, audio, video, agent, pii, language, tabular, code.
             columns: List of column names for the output rows.
             prompt: Natural language description of the data to generate.
             num_rows: Number of rows to generate (default: 5, max: 100).
             examples: Optional list of example rows for few-shot generation.
             params: Optional modality-specific parameters dict.
-            export_format: If set, download as file. One of: csv, jsonl, parquet, json.
+            export_format: Reserved for export workflows. generate() returns row dicts; use to_file() to save rows locally.
 
         Returns:
             List of dicts, each containing the requested columns plus "status".

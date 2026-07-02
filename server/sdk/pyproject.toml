@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "anote-generate"
 version = "1.0.0"
-description = "Python SDK for the Anote Synthetic Data API — generate text, image, audio, video, agent, and PII datasets"
+description = "Python SDK for the Anote Synthetic Data API — generate text, image, audio, video, agent, PII, language, tabular, and code datasets"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

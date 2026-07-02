@@ -1,6 +1,6 @@
-# from anote_generate import AnoteGenerate
+# from anote_generate import Anote
 
-# sdk = AnoteGenerate(api_key="your-api-key")
+# sdk = Anote(api_key="your-api-key")
 # data = sdk.generate(
 #     task_type="text",
 #     columns=["question", "answer"],
