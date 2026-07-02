@@ -6,6 +6,9 @@
 
 Multi-modal synthetic dataset generation platform. Generate text, image, audio, video, PII, tabular, code, and language datasets via a unified REST API or Python SDK.
 
+If you are evaluating whether synthetic data is suitable for model training, see
+[`Does synthetic data work well enough to train on?`](frontend/src/docs/docs/api-anote-generate/synthetic-data-faq.md).
+
 ---
 
 ## Quick Start
