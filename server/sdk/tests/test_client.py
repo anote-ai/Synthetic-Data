@@ -7,7 +7,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from anote_generate import Anote, AnoteGenerate, AnoteAuthError, AnoteValidationError, AnoteServerError
+from anote_generate import Anote, AnoteGenerate, AnoteAuthError, AnoteValidationError, AnoteServerError, Job
 
 
 @pytest.fixture
@@ -60,6 +60,80 @@ def test_generate_raises_validation_error(client):
     with pytest.raises(AnoteValidationError) as exc_info:
         client.generate(task_type="invalid", columns=["col"], prompt="test", num_rows=1)
     assert exc_info.value.details[0]["field"] == "task_type"
+
+
+@responses_lib.activate
+def test_generate_async_returns_job(client):
+    responses_lib.add(
+        responses_lib.POST,
+        "http://localhost:5000/public/generate/async",
+        json={"job_id": "job-123", "status": "queued"},
+        status=202,
+    )
+
+    job = client.generate_async(
+        task_type="text",
+        columns=["question", "answer"],
+        prompt="Python Q&A",
+        num_rows=2,
+    )
+
+    assert job.job_id == "job-123"
+    assert responses_lib.calls[0].request.url == "http://localhost:5000/public/generate/async"
+    body = json.loads(responses_lib.calls[0].request.body)
+    assert body["task_type"] == "text"
+    assert body["columns"] == ["question", "answer"]
+
+
+@responses_lib.activate
+def test_job_status_gets_job(client):
+    responses_lib.add(
+        responses_lib.GET,
+        "http://localhost:5000/public/jobs/job-123",
+        json={"job_id": "job-123", "status": "running"},
+        status=200,
+    )
+    job = Job("job-123", client=client)
+
+    assert job.status == "running"
+    assert responses_lib.calls[0].request.url == "http://localhost:5000/public/jobs/job-123"
+
+
+@responses_lib.activate
+def test_job_cancel_deletes_job(client):
+    responses_lib.add(
+        responses_lib.DELETE,
+        "http://localhost:5000/public/jobs/job-123",
+        json={"job_id": "job-123", "status": "canceled"},
+        status=200,
+    )
+    job = Job("job-123", client=client)
+
+    result = job.cancel()
+
+    assert result["status"] == "canceled"
+    assert responses_lib.calls[0].request.url == "http://localhost:5000/public/jobs/job-123"
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "expected_error"),
+    [
+        (401, {"error": "Unauthorized"}, AnoteAuthError),
+        (422, {"error": "Validation failed", "details": []}, AnoteValidationError),
+        (500, {"error": "Server failed"}, AnoteServerError),
+    ],
+)
+@responses_lib.activate
+def test_request_raises_typed_errors(client, status, body, expected_error):
+    responses_lib.add(
+        responses_lib.GET,
+        "http://localhost:5000/public/jobs/job-123",
+        json=body,
+        status=status,
+    )
+
+    with pytest.raises(expected_error):
+        client._request("GET", "/public/jobs/job-123")
 
 
 def test_to_file_csv(client, tmp_path):

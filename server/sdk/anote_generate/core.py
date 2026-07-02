@@ -158,6 +158,20 @@ class Anote:
                 raise  # Don't retry client errors
         raise last_exc
 
+    def _request(self, method: str, path: str, **kwargs) -> Any:
+        """Make an API request and return the parsed response body."""
+        url = f"{self.base_url}{path}"
+        kwargs.setdefault("timeout", self.timeout)
+        resp = self._session.request(method, url, **kwargs)
+        self._raise_for_status(resp)
+
+        if not resp.content:
+            return {}
+        try:
+            return resp.json()
+        except ValueError:
+            return resp.text
+
     def _raise_for_status(self, resp: requests.Response) -> None:
         """Raise typed exceptions based on HTTP status code."""
         if resp.ok:
