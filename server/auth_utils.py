@@ -18,9 +18,9 @@ class InvalidTokenError(Exception):
 def extractUserEmailFromRequest(req) -> str:
     """Extract user email from JWT Bearer token in Authorization header."""
     auth_header = req.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    scheme, _, token = auth_header.partition(" ")
+    if scheme.lower() != "bearer":
         raise InvalidTokenError("Missing or malformed Authorization header")
-    token = auth_header[7:]
     if not _HAS_JWT:
         # Without PyJWT installed, accept any non-empty token
         return "user@example.com"
