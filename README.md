@@ -74,7 +74,7 @@ Synthetic-Data/
 │   └── tests/
 ├── server/sdk/                   # pip install anote-generate
 │   ├── pyproject.toml
-│   ├── anote-generate/
+│   ├── anote_generate/
 │   │   ├── __init__.py
 │   │   └── core.py
 │   └── CHANGELOG.md
