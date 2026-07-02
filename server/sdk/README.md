@@ -1,6 +1,6 @@
 # anote-generate
 
-Python SDK for the [Anote Synthetic Data API](https://anote.ai) — generate text, image, audio, video, agent trace, and PII datasets using LLMs.
+Python SDK for the [Anote Synthetic Data API](https://anote.ai) — generate text, image, audio, video, agent trace, PII, language, tabular, and code datasets using LLMs.
 
 ## Installation
 
@@ -11,10 +11,9 @@ pip install anote-generate
 ## Quick Start
 
 ```python
-from anote_generate import Anote, AnoteGenerate
+from anote_generate import Anote
 
 client = Anote(api_key="your-api-key")
-# AnoteGenerate is also available as a backwards-compatible alias.
 
 # Generate text data
 rows = client.generate(
@@ -46,6 +45,7 @@ df = client.to_dataframe(rows)
 | `agent` | Multi-turn agent traces with tool calls |
 | `pii` | Synthetic PII records (14 types) |
 | `tabular` | Typed tabular data with relational integrity |
+| `language` | Translation and language-focused datasets |
 | `code` | Code functions, tests, and docstrings |
 
 ## Parameters

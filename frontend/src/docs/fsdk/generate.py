@@ -1,7 +1,7 @@
 import requests
 import json
 
-class AnoteGenerate:
+class Anote:
     def __init__(self, api_key):
         # self.API_BASE_URL = 'http://localhost:5000'
         self.API_BASE_URL = "https://api.anote.ai"
@@ -15,14 +15,14 @@ class AnoteGenerate:
         Generate synthetic data based on task type and prompt.
 
         Args:
-            task_type (str): One of ['text', 'image', 'video', 'audio', 'agent', 'reasoning']
+            task_type (str): One of ['text', 'image', 'video', 'audio', 'agent', 'pii', 'language', 'tabular', 'code']
             columns (list): Column names for dataset
             prompt (str, optional): Prompt to guide generation
             num_rows (int, optional): Number of data rows to generate
             examples (list, optional): Few-shot examples to guide generation
 
         Returns:
-            dict: Generated dataset in JSON or downloadable CSV format
+            list[dict]: Generated rows returned as JSON data from /public/generate. Use to_file() to save rows locally, or /public/generate/export for downloadable export formats.
         """
         data = {
             "task_type": task_type,
