@@ -1,4 +1,4 @@
-# from anotegenerate.core import AnoteGenerate
+# from anote_generate import AnoteGenerate
 
 # sdk = AnoteGenerate(api_key="your-api-key")
 # data = sdk.generate(

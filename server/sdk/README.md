@@ -11,9 +11,10 @@ pip install anote-generate
 ## Quick Start
 
 ```python
-from anote_generate import Anote
+from anote_generate import Anote, AnoteGenerate
 
 client = Anote(api_key="your-api-key")
+# AnoteGenerate is also available as a backwards-compatible alias.
 
 # Generate text data
 rows = client.generate(

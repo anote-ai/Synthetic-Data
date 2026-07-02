@@ -7,7 +7,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from anote_generate import Anote, AnoteAuthError, AnoteValidationError, AnoteServerError
+from anote_generate import Anote, AnoteGenerate, AnoteAuthError, AnoteValidationError, AnoteServerError
 
 
 @pytest.fixture
@@ -97,3 +97,7 @@ def test_missing_api_key():
 def test_version_exported():
     from anote_generate import __version__
     assert __version__ == "1.0.0"
+
+
+def test_anote_generate_alias_exported():
+    assert AnoteGenerate is Anote

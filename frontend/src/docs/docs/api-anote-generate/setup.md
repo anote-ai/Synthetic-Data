@@ -13,14 +13,13 @@ All API calls require an API key. To get your API key, register at https://anote
 
 ### Initialization
 
-```
-from anotegenerate.core import AnoteGenerate
+```python
+from anote_generate import AnoteGenerate
 
 api_key = "your-api-key"
 sdk = AnoteGenerate(api_key=api_key)
 ```
 
 **Dependencies**
-The SDK requires Python 3.7+ and depends on the following libraries:
-
+The SDK requires Python 3.9+ and depends on the following libraries:
 
