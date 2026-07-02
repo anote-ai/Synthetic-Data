@@ -465,9 +465,11 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [showTemplates, setShowTemplates] = useState(true);
   const [validationErrors, setValidationErrors] = useState({});
+  const [quality, setQuality] = useState(null);
+  const [classDistribution, setClassDistribution] = useState('');
 
-  // Reset params when task type changes
-  useEffect(() => { setParams({}); }, [taskType]);
+  // Reset params and class distribution when task type changes
+  useEffect(() => { setParams({}); setClassDistribution(''); }, [taskType]);
 
   const applyTemplate = useCallback((t) => {
     setTaskType(t.taskType);
@@ -491,6 +493,17 @@ export default function App() {
       try { JSON.parse(examples); }
       catch { errs.examples = 'Must be valid JSON array'; }
     }
+    if (classDistribution.trim()) {
+      try {
+        const dist = JSON.parse(classDistribution);
+        const cols = columns.split(',').map(c => c.trim()).filter(Boolean);
+        const keys = Object.keys(dist);
+        if (keys.length !== 1) errs.classDistribution = 'Must target exactly one column';
+        else if (!cols.includes(keys[0])) errs.classDistribution = `Column "${keys[0]}" is not in the columns list`;
+      } catch {
+        errs.classDistribution = 'Must be valid JSON, e.g. {"label": {"positive": 30, "negative": 70}}';
+      }
+    }
     return errs;
   };
 
@@ -504,6 +517,11 @@ export default function App() {
     setError(null);
     setLoading(true);
     setStreamProgress(null);
+    setQuality(null);
+
+    const resolvedParams = classDistribution.trim()
+      ? { ...params, class_distribution: JSON.parse(classDistribution) }
+      : params;
 
     const body = {
       task_type: taskType,
@@ -511,7 +529,7 @@ export default function App() {
       num_rows: Number(numRows),
       columns: columns.split(',').map(c => c.trim()).filter(Boolean),
       examples: examples.trim() ? JSON.parse(examples) : [],
-      params,
+      params: resolvedParams,
     };
 
     try {
@@ -552,6 +570,11 @@ export default function App() {
             setResult({ data });
             saveHistory({ ts: new Date().toISOString(), task_type: taskType, num_rows: Number(numRows), preview: columns.split(',')[0].trim(), body });
             setHistory(loadHistory());
+            fetch(`${API_BASE}/public/generate/quality`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data, prompt: body.prompt }),
+            }).then(r => r.ok ? r.json() : null).then(r => r && setQuality(r.quality)).catch(() => {});
             return;
           } else if (event.type === 'error') {
             throw new Error(event.message);
@@ -730,6 +753,25 @@ export default function App() {
           </div>
         )}
 
+        {/* Class distribution — text task only */}
+        {taskType === 'text' && (
+          <div style={{ marginBottom: 12 }}>
+            <label htmlFor="classDistribution" style={{ fontSize: 12, color: '#555' }}>
+              Class Distribution (optional) — target exact label counts
+            </label>
+            <textarea
+              id="classDistribution"
+              placeholder='{"label": {"positive": 30, "negative": 70}}'
+              value={classDistribution}
+              onChange={e => setClassDistribution(e.target.value)}
+              style={{ ...fieldStyle('classDistribution'), height: '3rem', resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+            />
+            {validationErrors.classDistribution && (
+              <div style={{ color: 'red', fontSize: 12, marginBottom: 6 }}>{validationErrors.classDistribution}</div>
+            )}
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={loading}
@@ -791,6 +833,7 @@ export default function App() {
             </div>
           </div>
           <ResultTable rows={result.data} />
+          <QualityReport quality={quality} />
         </div>
       )}
     </div>

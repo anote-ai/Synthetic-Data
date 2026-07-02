@@ -77,6 +77,48 @@ def llm_coherence_review(data: List[dict], prompt: str) -> dict:
         return {"score": 0, "issues": ["Could not parse LLM response"], "suggestions": []}
 
 
+def lexical_diversity(data: List[dict]) -> float:
+    """Ratio of unique words to total words across all string values (excludes status/error columns)."""
+    skip = {"status", "error"}
+    all_words = []
+    for row in data:
+        for col, val in row.items():
+            if col in skip:
+                continue
+            if isinstance(val, str):
+                all_words.extend(val.lower().split())
+    if not all_words:
+        return 1.0
+    return round(len(set(all_words)) / len(all_words), 4)
+
+
+def label_balance(data: List[dict]) -> dict:
+    """
+    For columns whose values look categorical (2–15 unique strings, avg length ≤ 50 chars),
+    return value counts. Skips status/error columns.
+    """
+    if not data:
+        return {}
+    skip = {"status", "error"}
+    result = {}
+    for col in data[0].keys():
+        if col in skip:
+            continue
+        values = [row.get(col) for row in data if isinstance(row.get(col), str)]
+        if len(values) != len(data):
+            continue
+        unique = set(values)
+        if not (2 <= len(unique) <= 15):
+            continue
+        if sum(len(v) for v in values) / len(values) > 50:
+            continue
+        counts = {}
+        for v in values:
+            counts[v] = counts.get(v, 0) + 1
+        result[col] = counts
+    return result
+
+
 def score_dataset(data: List[dict], prompt: str = "", run_llm_review: bool = False) -> dict:
     """Run all quality checks and return a consolidated report."""
     unique = deduplicate(data)
@@ -89,6 +131,8 @@ def score_dataset(data: List[dict], prompt: str = "", run_llm_review: bool = Fal
         "duplicates_removed": len(data) - len(unique),
         "completeness": completeness,
         "avg_completeness": avg_completeness,
+        "lexical_diversity": lexical_diversity(data),
+        "label_balance": label_balance(data),
     }
 
     if run_llm_review and data:
