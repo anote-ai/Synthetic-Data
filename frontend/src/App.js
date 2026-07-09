@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import exampleDatasets from './exampleDatasets';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+const ANOTE_PRODUCT_KEY = 'anote_product_api_key';
+const ANOTE_PRODUCT_IMPORT_URL = 'https://api.anote.ai/api/import/dataset';
 
 const ROI_TASKS = {
   classification: { label: 'Classification', labelsPerRow: 1, timePerRowMinutes: 0.6 },
@@ -108,6 +110,24 @@ function downloadBlob(content, filename, mime) {
 }
 
 // ── Version history API (backed by /public/generate/versions on the server) ───
+
+function buildAnoteImportPayload(rows, context) {
+  const data = rows.map(({ status, ...row }) => row);
+  const columns = data.length ? Object.keys(data[0]) : context.columns;
+
+  return {
+    name: context.name,
+    columns,
+    rows: data,
+    source: 'anote-synthetic-data',
+    metadata: {
+      task_type: context.taskType,
+      prompt: context.prompt,
+      generated_rows: data.length,
+      created_at: new Date().toISOString(),
+    },
+  };
+}
 
 async function apiRequest(apiKey, path, options = {}) {
   const resp = await fetch(`${API_BASE}${path}`, {
@@ -633,6 +653,7 @@ export default function App() {
   const [diffSelection, setDiffSelection] = useState([]); // up to 2 version_ids
   const [diffResult, setDiffResult] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  const [anoteStatus, setAnoteStatus] = useState(null);
 
   // Reset params and class distribution when task type changes
   useEffect(() => { setParams({}); setClassDistribution(''); }, [taskType]);
@@ -700,6 +721,7 @@ export default function App() {
     setLoading(true);
     setStreamProgress(null);
     setQuality(null);
+    setAnoteStatus(null);
 
     const resolvedParams = classDistribution.trim()
       ? { ...params, class_distribution: JSON.parse(classDistribution) }
@@ -868,6 +890,55 @@ export default function App() {
     navigator.clipboard.writeText(JSON.stringify(result?.data || [], null, 2));
     setCopyMsg('Copied!');
     setTimeout(() => setCopyMsg(''), 2000);
+  };
+
+  const handleSendToAnote = async () => {
+    if (!result?.data?.length) return;
+
+    const storedKey = localStorage.getItem(ANOTE_PRODUCT_KEY) || '';
+    const anoteKey = storedKey || window.prompt('Enter your Anote API key from anote.ai/settings');
+    if (!anoteKey) {
+      setAnoteStatus({ type: 'error', message: 'Enter your Anote API key from anote.ai/settings' });
+      return;
+    }
+
+    const defaultName = prompt.trim().split(/\s+/).slice(0, 6).join(' ') || 'Synthetic dataset';
+    const datasetName = window.prompt('Project name in Anote', defaultName);
+    if (!datasetName) return;
+
+    setAnoteStatus({ type: 'loading', message: 'Sending dataset to Anote Product...' });
+
+    try {
+      const resp = await fetch(ANOTE_PRODUCT_IMPORT_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${anoteKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(buildAnoteImportPayload(result.data, {
+          name: datasetName,
+          taskType,
+          prompt,
+          columns: columns.split(',').map(c => c.trim()).filter(Boolean),
+        })),
+      });
+
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        localStorage.removeItem(ANOTE_PRODUCT_KEY);
+        throw new Error(body.error || body.message || 'Enter your Anote API key from anote.ai/settings');
+      }
+
+      localStorage.setItem(ANOTE_PRODUCT_KEY, anoteKey);
+      const projectUrl = body.project_url || body.url || body.project?.url;
+      setAnoteStatus({
+        type: 'success',
+        message: 'Project created in Anote',
+        url: projectUrl,
+      });
+    } catch (err) {
+      setAnoteStatus({ type: 'error', message: err.message || 'Failed to send dataset to Anote Product' });
+    }
   };
 
   const fieldStyle = (key) => ({
@@ -1189,11 +1260,34 @@ export default function App() {
               <button onClick={() => downloadBlob(toJSONL(result.data), 'synthetic_data.jsonl', 'application/jsonl')}>
                 ↓ JSONL
               </button>
+              <button onClick={handleSendToAnote} disabled={anoteStatus?.type === 'loading'}>
+                {anoteStatus?.type === 'loading' ? 'Sending...' : 'Send to Anote Product →'}
+              </button>
               <button onClick={handleCopy}>
                 {copyMsg || '⧉ Copy JSON'}
               </button>
             </div>
           </div>
+          {anoteStatus && anoteStatus.type !== 'loading' && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: '8px 12px',
+                borderRadius: 4,
+                background: anoteStatus.type === 'success' ? '#f0fff4' : '#fff0f0',
+                color: anoteStatus.type === 'success' ? '#176b2c' : '#b00020',
+                fontSize: 13,
+              }}
+            >
+              {anoteStatus.message}
+              {anoteStatus.url && (
+                <>
+                  {' '}
+                  <a href={anoteStatus.url} target="_blank" rel="noreferrer">Open in Anote →</a>
+                </>
+              )}
+            </div>
+          )}
           <ResultTable rows={result.data} />
           <QualityReport quality={quality} />
         </div>
