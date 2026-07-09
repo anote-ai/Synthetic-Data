@@ -2,8 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import exampleDatasets from './exampleDatasets';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
-const HISTORY_KEY = 'anote_generation_history';
-const MAX_HISTORY = 10;
 
 const ROI_TASKS = {
   classification: { label: 'Classification', labelsPerRow: 1, timePerRowMinutes: 0.6 },
@@ -109,15 +107,52 @@ function downloadBlob(content, filename, mime) {
   URL.revokeObjectURL(url);
 }
 
-function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
-  catch { return []; }
+// ── Version history API (backed by /public/generate/versions on the server) ───
+
+async function apiRequest(apiKey, path, options = {}) {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || resp.statusText);
+  }
+  return resp.json();
 }
 
-function saveHistory(entry) {
-  const hist = loadHistory();
-  hist.unshift(entry);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, MAX_HISTORY)));
+function fetchVersions(apiKey) {
+  return apiRequest(apiKey, '/public/generate/versions?limit=50').then(r => r.versions || []);
+}
+
+function fetchVersion(apiKey, versionId) {
+  return apiRequest(apiKey, `/public/generate/versions/${versionId}`);
+}
+
+function renameVersion(apiKey, versionId, name) {
+  return apiRequest(apiKey, `/public/generate/versions/${versionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+function setVersionQuality(apiKey, versionId, quality) {
+  return apiRequest(apiKey, `/public/generate/versions/${versionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ quality_score: quality }),
+  });
+}
+
+function restoreVersion(apiKey, versionId) {
+  return apiRequest(apiKey, `/public/generate/versions/${versionId}/restore`, { method: 'POST' });
+}
+
+function diffVersions(apiKey, versionIdA, versionIdB) {
+  return apiRequest(apiKey, `/public/generate/versions/${versionIdA}/diff?against=${versionIdB}`);
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -395,6 +430,129 @@ function RoiCalculator({ defaultRows }) {
   );
 }
 
+function QualityReport({ quality }) {
+  if (!quality) return null;
+
+  const { total_rows, unique_rows, duplicates_removed, avg_completeness, lexical_diversity, label_balance } = quality;
+
+  const suggestions = [];
+  if (duplicates_removed > 0)
+    suggestions.push(`${duplicates_removed} duplicate row${duplicates_removed > 1 ? 's' : ''} detected — use the deduplication export to clean them.`);
+  if (avg_completeness < 0.9)
+    suggestions.push(`Completeness is ${Math.round(avg_completeness * 100)}% — some rows have empty values.`);
+  if (lexical_diversity != null && lexical_diversity < 0.3)
+    suggestions.push('Low lexical diversity — generated text may be repetitive. Try a more varied prompt.');
+  if (label_balance) {
+    for (const [col, counts] of Object.entries(label_balance)) {
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      const [topVal, topCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      if (topCount / total > 0.6)
+        suggestions.push(`"${col}" is imbalanced — "${topVal}" appears in ${Math.round(topCount / total * 100)}% of rows.`);
+    }
+  }
+
+  const Meter = ({ pct, warn }) => (
+    <div style={{ display: 'inline-block', width: 80, height: 6, background: '#e0e0e0', borderRadius: 3, overflow: 'hidden', marginLeft: 6, verticalAlign: 'middle' }}>
+      <div style={{ width: `${pct}%`, height: '100%', background: warn ? '#ff9800' : '#4caf50', borderRadius: 3 }} />
+    </div>
+  );
+
+  const uniquePct = Math.round(unique_rows / total_rows * 100);
+  const compPct = Math.round(avg_completeness * 100);
+  const divPct = lexical_diversity != null ? Math.round(lexical_diversity * 100) : null;
+
+  return (
+    <div style={{ marginTop: 16, padding: '12px 16px', border: '1px solid #e0e0e0', borderRadius: 6, fontSize: 13 }}>
+      <div style={{ fontWeight: 600, marginBottom: 10 }}>Quality Report</div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div>
+          <span style={{ color: uniquePct === 100 ? 'green' : '#e67e22' }}>{uniquePct === 100 ? '✓' : '!'}</span>
+          {' '}{unique_rows} / {total_rows} unique rows
+          {duplicates_removed > 0 && <span style={{ color: '#e67e22', marginLeft: 6 }}>({duplicates_removed} duplicate{duplicates_removed > 1 ? 's' : ''})</span>}
+        </div>
+        <div>
+          <span style={{ color: compPct >= 90 ? 'green' : '#e67e22' }}>{compPct >= 90 ? '✓' : '!'}</span>
+          {' '}Completeness: {compPct}%
+          <Meter pct={compPct} warn={compPct < 90} />
+        </div>
+        {divPct != null && (
+          <div>
+            <span style={{ color: divPct >= 30 ? 'green' : '#e67e22' }}>{divPct >= 30 ? '✓' : '!'}</span>
+            {' '}Lexical diversity: {divPct}%
+            <Meter pct={divPct} warn={divPct < 30} />
+          </div>
+        )}
+      </div>
+
+      {label_balance && Object.keys(label_balance).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {Object.entries(label_balance).map(([col, counts]) => {
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+            return (
+              <div key={col} style={{ marginBottom: 8 }}>
+                <div style={{ color: '#555', marginBottom: 4 }}>Distribution: <strong>{col}</strong></div>
+                {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([val, count]) => (
+                  <div key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                    <span style={{ width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#333' }} title={val}>{val}</span>
+                    <div style={{ width: 140, height: 12, background: '#e0e0e0', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.round(count / total * 100)}%`, height: '100%', background: '#1a73e8', borderRadius: 3 }} />
+                    </div>
+                    <span style={{ color: '#666', minWidth: 48 }}>{count} ({Math.round(count / total * 100)}%)</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div style={{ marginTop: 10, padding: '8px 10px', background: '#fffbf0', border: '1px solid #ffe58f', borderRadius: 4 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: '#8a6d00' }}>Suggestions</div>
+          {suggestions.map((s, i) => <div key={i} style={{ color: '#5a4500' }}>• {s}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiffPanel({ diff, onClose }) {
+  if (!diff) return null;
+  const metaEntries = Object.entries(diff.metadata_changes || {});
+
+  return (
+    <div style={{ marginTop: 10, padding: '12px 16px', border: '1px solid #c5d3f5', borderRadius: 6, fontSize: 13, background: '#f7f9ff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <strong>Diff: {diff.version_a.slice(0, 8)} → {diff.version_b.slice(0, 8)}</strong>
+        <button onClick={onClose} style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: '#888' }}>✕ Close</button>
+      </div>
+
+      {metaEntries.length > 0 ? (
+        <div style={{ marginBottom: 10 }}>
+          {metaEntries.map(([field, { from, to }]) => (
+            <div key={field} style={{ marginBottom: 4 }}>
+              <strong>{field}</strong> changed:{' '}
+              <span style={{ color: '#c0392b' }}>{JSON.stringify(from)}</span>
+              {' → '}
+              <span style={{ color: '#27ae60' }}>{JSON.stringify(to)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ color: '#666', marginBottom: 10 }}>No prompt/column/param changes between these versions.</div>
+      )}
+
+      <div style={{ display: 'flex', gap: 16, color: '#444' }}>
+        <span>{diff.row_count_a} → {diff.row_count_b} rows</span>
+        <span style={{ color: '#27ae60' }}>+{diff.rows_added.length} added</span>
+        <span style={{ color: '#c0392b' }}>-{diff.rows_removed.length} removed</span>
+        <span>{diff.rows_unchanged} unchanged</span>
+      </div>
+    </div>
+  );
+}
+
 function ExampleGallery() {
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem', fontFamily: 'Arial, sans-serif' }}>
@@ -461,15 +619,39 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [streamProgress, setStreamProgress] = useState(null);
   const [copyMsg, setCopyMsg] = useState('');
-  const [history, setHistory] = useState(loadHistory);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showTemplates, setShowTemplates] = useState(true);
   const [validationErrors, setValidationErrors] = useState({});
   const [quality, setQuality] = useState(null);
   const [classDistribution, setClassDistribution] = useState('');
+  const [editingHistoryIdx, setEditingHistoryIdx] = useState(null);
+  const [editingName, setEditingName] = useState('');
+  const [pendingParent, setPendingParent] = useState(null); // { versionId, name } when re-running a version
+  const [diffSelection, setDiffSelection] = useState([]); // up to 2 version_ids
+  const [diffResult, setDiffResult] = useState(null);
+  const [diffLoading, setDiffLoading] = useState(false);
 
   // Reset params and class distribution when task type changes
   useEffect(() => { setParams({}); setClassDistribution(''); }, [taskType]);
+
+  const refreshHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      setHistory(await fetchVersions(apiKey));
+    } catch (err) {
+      setHistoryError(err.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [apiKey]);
+
+  // Load history on mount, and again whenever the panel is (re)opened
+  useEffect(() => { refreshHistory(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (showHistory) refreshHistory(); }, [showHistory, refreshHistory]);
 
   const applyTemplate = useCallback((t) => {
     setTaskType(t.taskType);
@@ -530,6 +712,7 @@ export default function App() {
       columns: columns.split(',').map(c => c.trim()).filter(Boolean),
       examples: examples.trim() ? JSON.parse(examples) : [],
       params: resolvedParams,
+      ...(pendingParent ? { dataset_name: pendingParent.name, parent_version_id: pendingParent.versionId } : {}),
     };
 
     try {
@@ -567,14 +750,21 @@ export default function App() {
             setStreamProgress({ completed: event.row + 1, total: event.total });
           } else if (event.type === 'done') {
             const data = event.data && event.data.length ? event.data : accumulatedRows;
-            setResult({ data });
-            saveHistory({ ts: new Date().toISOString(), task_type: taskType, num_rows: Number(numRows), preview: columns.split(',')[0].trim(), body });
-            setHistory(loadHistory());
+            const versionId = event.version_id;
+            setResult({ data, version_id: versionId });
+            setPendingParent(null); // this generation consumed the pending chain link
+            refreshHistory();
             fetch(`${API_BASE}/public/generate/quality`, {
               method: 'POST',
               headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ data, prompt: body.prompt }),
-            }).then(r => r.ok ? r.json() : null).then(r => r && setQuality(r.quality)).catch(() => {});
+            }).then(r => r.ok ? r.json() : null).then(r => {
+              if (!r) return;
+              setQuality(r.quality);
+              if (versionId) {
+                setVersionQuality(apiKey, versionId, r.quality).then(refreshHistory).catch(() => {});
+              }
+            }).catch(() => {});
             return;
           } else if (event.type === 'error') {
             throw new Error(event.message);
@@ -589,15 +779,90 @@ export default function App() {
     }
   };
 
-  const restoreHistory = (entry) => {
-    setTaskType(entry.body.task_type);
-    setPrompt(entry.body.prompt);
-    setNumRows(entry.body.num_rows);
-    setColumns(entry.body.columns.join(','));
-    setExamples(entry.body.examples.length ? JSON.stringify(entry.body.examples, null, 2) : '');
-    setParams(entry.body.params || {});
+  const restoreHistory = useCallback((v) => {
+    const p = v.params || {};
+    const cd = p.class_distribution;
+    setTaskType(v.task_type);
+    setPrompt(v.prompt);
+    setNumRows(v.num_rows);
+    setColumns((v.columns || []).join(','));
+    setExamples(v.examples && v.examples.length ? JSON.stringify(v.examples, null, 2) : '');
+    setParams({ ...p, class_distribution: undefined });
+    setClassDistribution(cd ? JSON.stringify(cd, null, 2) : '');
+    setResult(null);
+    setQuality(null);
+    setError(null);
+    // Chains this re-run to v so the next generation becomes v's next version
+    setPendingParent({ versionId: v.version_id, name: v.name || '' });
     setShowHistory(false);
-  };
+  }, []);
+
+  const viewHistory = useCallback(async (v) => {
+    try {
+      const full = await fetchVersion(apiKey, v.version_id);
+      setResult({ data: full.result_data || [], version_id: full.version_id });
+      setQuality(full.quality_score || null);
+      setShowHistory(false);
+    } catch (err) {
+      setHistoryError(err.message);
+    }
+  }, [apiKey]);
+
+  const commitHistoryName = useCallback(async (versionId) => {
+    try {
+      await renameVersion(apiKey, versionId, editingName.trim());
+    } catch (err) {
+      setHistoryError(err.message);
+    }
+    setEditingHistoryIdx(null);
+    refreshHistory();
+  }, [apiKey, editingName, refreshHistory]);
+
+  const downloadHistoryEntry = useCallback(async (v, format) => {
+    try {
+      const full = await fetchVersion(apiKey, v.version_id);
+      const rows = full.result_data || [];
+      if (!rows.length) return;
+      const filename = `${v.name || 'dataset'}.${format}`;
+      downloadBlob(
+        format === 'csv' ? toCSV(rows) : toJSONL(rows),
+        filename,
+        format === 'csv' ? 'text/csv' : 'application/jsonl'
+      );
+    } catch (err) {
+      setHistoryError(err.message);
+    }
+  }, [apiKey]);
+
+  const rollbackVersion = useCallback(async (versionId) => {
+    try {
+      await restoreVersion(apiKey, versionId);
+      refreshHistory();
+    } catch (err) {
+      setHistoryError(err.message);
+    }
+  }, [apiKey, refreshHistory]);
+
+  const toggleDiffSelect = useCallback((versionId) => {
+    setDiffResult(null);
+    setDiffSelection(sel => {
+      if (sel.includes(versionId)) return sel.filter(id => id !== versionId);
+      if (sel.length >= 2) return [sel[1], versionId];
+      return [...sel, versionId];
+    });
+  }, []);
+
+  const runDiff = useCallback(async () => {
+    if (diffSelection.length !== 2) return;
+    setDiffLoading(true);
+    try {
+      setDiffResult(await diffVersions(apiKey, diffSelection[0], diffSelection[1]));
+    } catch (err) {
+      setHistoryError(err.message);
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [apiKey, diffSelection]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(JSON.stringify(result?.data || [], null, 2));
@@ -634,27 +899,124 @@ export default function App() {
         </div>
       </div>
 
-      {/* Generation history panel */}
-      {showHistory && (
-        <div style={{ border: '1px solid #ddd', borderRadius: 4, padding: '1rem', marginTop: 12, marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <strong>Recent generations</strong>
-            <button
-              onClick={() => { localStorage.removeItem(HISTORY_KEY); setHistory([]); }}
-              style={{ fontSize: 11, color: 'red' }}
-            >Clear</button>
-          </div>
-          {history.length === 0 && <div style={{ color: '#888', fontSize: 13 }}>No history yet.</div>}
-          {history.map((h, i) => (
-            <div
-              key={i}
-              onClick={() => restoreHistory(h)}
-              style={{ cursor: 'pointer', padding: '6px 8px', borderRadius: 4, marginBottom: 4, background: '#f9f9f9', fontSize: 13 }}
-            >
-              <strong>{h.task_type}</strong> · {h.num_rows} rows · {h.preview} column ·{' '}
-              <span style={{ color: '#888' }}>{new Date(h.ts).toLocaleString()}</span>
+      {/* Generation history panel — backed by the server's /public/generate/versions API */}
+      {showHistory && (() => {
+        // Compute version numbers per named dataset chain (oldest = v1)
+        const versionOf = {};
+        const counts = {};
+        [...history]
+          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+          .forEach(v => {
+            const name = v.name || '';
+            if (name) { counts[name] = (counts[name] || 0) + 1; versionOf[v.version_id] = counts[name]; }
+          });
+
+        return (
+          <div style={{ border: '1px solid #ddd', borderRadius: 4, padding: '1rem', marginTop: 12, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <strong>Generation History</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {diffSelection.length === 2 && (
+                  <button
+                    onClick={runDiff}
+                    disabled={diffLoading}
+                    style={{ fontSize: 11, padding: '3px 10px', cursor: diffLoading ? 'wait' : 'pointer' }}
+                  >{diffLoading ? 'Comparing…' : 'Compare selected'}</button>
+                )}
+                <button onClick={refreshHistory} style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: '#1a73e8' }}>
+                  ↻ Refresh
+                </button>
+              </div>
             </div>
-          ))}
+
+            {historyError && <div style={{ color: 'red', fontSize: 12, marginBottom: 8 }}>{historyError}</div>}
+            <DiffPanel diff={diffResult} onClose={() => setDiffResult(null)} />
+            {historyLoading && <div style={{ color: '#888', fontSize: 13 }}>Loading…</div>}
+            {!historyLoading && history.length === 0 && <div style={{ color: '#888', fontSize: 13 }}>No history yet. Run a generation to save it here.</div>}
+            {history.map((v) => {
+              const name = v.name || '';
+              const model = v.params?.model || 'gpt-4o-mini';
+              const completeness = v.quality_score ? Math.round(v.quality_score.avg_completeness * 100) : null;
+              const vNum = versionOf[v.version_id];
+              const label = name ? `${name}${vNum ? ` v${vNum}` : ''}` : null;
+              const isEditing = editingHistoryIdx === v.version_id;
+              const isSelectedForDiff = diffSelection.includes(v.version_id);
+
+              return (
+                <div key={v.version_id} style={{ border: isSelectedForDiff ? '1px solid #1a73e8' : '1px solid #e8e8e8', borderRadius: 6, padding: '10px 12px', marginBottom: 8, background: '#fafafa' }}>
+                  {/* Header row: name + timestamp */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        title="Select to compare with another version"
+                        checked={isSelectedForDiff}
+                        onChange={() => toggleDiffSelect(v.version_id)}
+                      />
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          value={editingName}
+                          onChange={e => setEditingName(e.target.value)}
+                          onBlur={() => commitHistoryName(v.version_id)}
+                          onKeyDown={e => { if (e.key === 'Enter') commitHistoryName(v.version_id); if (e.key === 'Escape') setEditingHistoryIdx(null); }}
+                          placeholder="Dataset name…"
+                          style={{ fontSize: 13, fontWeight: 600, border: '1px solid #1a73e8', borderRadius: 3, padding: '2px 6px', width: 180 }}
+                        />
+                      ) : (
+                        <span
+                          onClick={() => { setEditingHistoryIdx(v.version_id); setEditingName(name); }}
+                          title="Click to name this dataset"
+                          style={{ fontSize: 13, fontWeight: 600, color: label ? '#1a1a1a' : '#aaa', cursor: 'pointer', borderBottom: '1px dashed #ccc' }}
+                        >
+                          {label || 'Unnamed — click to name'}
+                        </span>
+                      )}
+                      {v.parent_version_id && (
+                        <span style={{ fontSize: 11, color: '#888' }} title={v.parent_version_id}>
+                          based on {v.parent_version_id.slice(0, 8)}
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 11, color: '#999', flexShrink: 0, marginLeft: 8 }}>
+                      {new Date(v.created_at).toLocaleString()}
+                    </span>
+                  </div>
+
+                  {/* Meta row */}
+                  <div style={{ fontSize: 12, color: '#555', marginBottom: 6 }}>
+                    <strong>{v.task_type}</strong>
+                    {' · '}{v.row_count ?? v.num_rows} rows
+                    {' · '}{model}
+                    {completeness !== null && <span style={{ color: completeness >= 90 ? '#2e7d32' : '#e67e22' }}>{' · '}Completeness {completeness}%</span>}
+                  </div>
+
+                  {/* Prompt preview */}
+                  <div style={{ fontSize: 12, color: '#444', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.prompt}>
+                    "{v.prompt}"
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => viewHistory(v)} style={{ fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>View</button>
+                    <button onClick={() => restoreHistory(v)} style={{ fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>Re-run</button>
+                    <button onClick={() => rollbackVersion(v.version_id)} title="Restore this version's data as the newest version" style={{ fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>Restore</button>
+                    <button onClick={() => downloadHistoryEntry(v, 'csv')} style={{ fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>↓ CSV</button>
+                    <button onClick={() => downloadHistoryEntry(v, 'jsonl')} style={{ fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>↓ JSONL</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {pendingParent && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff8e1', border: '1px solid #ffe58f', borderRadius: 4, padding: '6px 12px', marginBottom: 12, fontSize: 12 }}>
+          <span>
+            Re-running {pendingParent.name ? <strong>{pendingParent.name}</strong> : 'an unnamed dataset'} — the next generation will be saved as its next version.
+          </span>
+          <button onClick={() => setPendingParent(null)} style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: '#8a6d00' }}>Cancel</button>
         </div>
       )}
 
