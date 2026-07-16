@@ -10,6 +10,7 @@ flask-limiter>=3.5.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
+huggingface-hub>=0.32.0
 idna==3.10
 jiter==0.10.0
 nest_asyncio>=1.6.0

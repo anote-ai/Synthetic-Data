@@ -654,6 +654,7 @@ export default function App() {
   const [diffResult, setDiffResult] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [anoteStatus, setAnoteStatus] = useState(null);
+  const [huggingFaceStatus, setHuggingFaceStatus] = useState(null);
 
   // Reset params and class distribution when task type changes
   useEffect(() => { setParams({}); setClassDistribution(''); }, [taskType]);
@@ -722,6 +723,7 @@ export default function App() {
     setStreamProgress(null);
     setQuality(null);
     setAnoteStatus(null);
+    setHuggingFaceStatus(null);
 
     const resolvedParams = classDistribution.trim()
       ? { ...params, class_distribution: JSON.parse(classDistribution) }
@@ -938,6 +940,24 @@ export default function App() {
       });
     } catch (err) {
       setAnoteStatus({ type: 'error', message: err.message || 'Failed to send dataset to Anote Product' });
+    }
+  };
+
+  const handlePushToHuggingFace = async () => {
+    const token = window.prompt('Enter a Hugging Face write token');
+    if (!token) return;
+    const repoId = window.prompt('Dataset name (username/name)');
+    if (!repoId) return;
+    const isPrivate = window.confirm('Make this dataset private?');
+    setHuggingFaceStatus({ type: 'loading', message: 'Publishing dataset...' });
+    try {
+      const response = await apiRequest(apiKey, '/public/generate/huggingface', {
+        method: 'POST',
+        body: JSON.stringify({ token, repo_id: repoId, private: isPrivate, rows: result.data, prompt }),
+      });
+      setHuggingFaceStatus({ type: 'success', message: 'Dataset published on Hugging Face', url: response.dataset_url });
+    } catch (err) {
+      setHuggingFaceStatus({ type: 'error', message: err.message });
     }
   };
 
@@ -1263,6 +1283,9 @@ export default function App() {
               <button onClick={handleSendToAnote} disabled={anoteStatus?.type === 'loading'}>
                 {anoteStatus?.type === 'loading' ? 'Sending...' : 'Send to Anote Product →'}
               </button>
+              <button onClick={handlePushToHuggingFace} disabled={huggingFaceStatus?.type === 'loading'}>
+                {huggingFaceStatus?.type === 'loading' ? 'Publishing...' : 'Push to Hugging Face'}
+              </button>
               <button onClick={handleCopy}>
                 {copyMsg || '⧉ Copy JSON'}
               </button>
@@ -1286,6 +1309,12 @@ export default function App() {
                   <a href={anoteStatus.url} target="_blank" rel="noreferrer">Open in Anote →</a>
                 </>
               )}
+            </div>
+          )}
+          {huggingFaceStatus && huggingFaceStatus.type !== 'loading' && (
+            <div style={{ marginTop: 10, color: huggingFaceStatus.type === 'success' ? '#176b2c' : '#b00020' }}>
+              {huggingFaceStatus.message}
+              {huggingFaceStatus.url && <> {' '}<a href={huggingFaceStatus.url} target="_blank" rel="noreferrer">View on Hugging Face →</a></>}
             </div>
           )}
           <ResultTable rows={result.data} />
