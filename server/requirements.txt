@@ -20,6 +20,7 @@ pandas==2.3.0
 pyarrow>=14.0
 pydantic==2.11.7
 pydantic_core==2.33.2
+PyJWT>=2.8.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
 pytz==2025.2

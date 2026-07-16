@@ -57,6 +57,27 @@ class TestJobStore:
             job = create_job("text", "u@test.com", {"webhook_url": "https://example.com/hook"})
             assert job["webhook_url"] == "https://example.com/hook"
 
+    def test_job_request_is_stored_for_retry(self, tmp_path):
+        with patch("utils.jobs._JOBS_DIR", tmp_path):
+            from utils.jobs import create_job
+            body = {"task_type": "text", "prompt": "retry me", "columns": ["text"]}
+            job = create_job("text", "u@test.com", body)
+            assert job["request"] == body
+
+    def test_retry_rejects_another_users_job(self, tmp_path):
+        with patch("utils.jobs._JOBS_DIR", tmp_path):
+            from utils.jobs import create_job, retry_job, update_job
+            job = create_job("text", "owner@test.com", {"task_type": "text"})
+            update_job(job["job_id"], status="failed")
+            assert retry_job(job["job_id"], "attacker@test.com") is None
+
+    def test_submit_enforces_per_user_active_job_limit(self, tmp_path):
+        with patch("utils.jobs._JOBS_DIR", tmp_path), patch("utils.jobs.MAX_ACTIVE_JOBS_PER_USER", 1):
+            from utils.jobs import JobLimitExceeded, create_job, submit_job
+            create_job("text", "u@test.com", {"task_type": "text"})
+            with pytest.raises(JobLimitExceeded):
+                submit_job({"task_type": "text"}, "u@test.com")
+
 
 class TestWebhookDelivery:
     def test_no_webhook_url_skips(self, tmp_path):
@@ -149,7 +170,8 @@ class TestAsyncEndpoints:
                 yield c
 
     def _auth_headers(self):
-        return {"Authorization": "Bearer test-key"}
+        from auth_utils import generate_token
+        return {"Authorization": f"Bearer {generate_token('test@example.com')}"}
 
     def test_submit_job_returns_202(self, client, tmp_path):
         payload = {"task_type": "text", "prompt": "test", "columns": ["q"], "num_rows": 2}
@@ -167,7 +189,7 @@ class TestAsyncEndpoints:
         assert resp.status_code == 422
 
     def test_get_job_found(self, client, tmp_path):
-        mock_job = {"job_id": "abc", "status": "succeeded", "result": []}
+        mock_job = {"job_id": "abc", "status": "succeeded", "result": [], "user_email": "test@example.com"}
         with patch("utils.jobs.get_job", return_value=mock_job):
             resp = client.get("/public/jobs/abc", headers=self._auth_headers())
         assert resp.status_code == 200
@@ -179,13 +201,21 @@ class TestAsyncEndpoints:
         assert resp.status_code == 404
 
     def test_cancel_job(self, client):
-        mock_job = {"job_id": "abc", "status": "canceled"}
-        with patch("utils.jobs.cancel_job", return_value=mock_job):
+        existing = {"job_id": "abc", "status": "queued", "user_email": "test@example.com"}
+        mock_job = {**existing, "status": "canceled"}
+        with patch("utils.jobs.get_job", return_value=existing), patch("utils.jobs.cancel_job", return_value=mock_job):
             resp = client.delete("/public/jobs/abc", headers=self._auth_headers())
         assert resp.status_code == 200
         assert resp.get_json()["status"] == "canceled"
 
     def test_cancel_job_not_found(self, client):
-        with patch("utils.jobs.cancel_job", return_value=None):
+        with patch("utils.jobs.get_job", return_value=None):
             resp = client.delete("/public/jobs/missing", headers=self._auth_headers())
         assert resp.status_code == 404
+
+    def test_retry_failed_job_returns_202(self, client):
+        retried = {"job_id": "retry-1", "status": "queued"}
+        with patch("utils.jobs.retry_job", return_value=retried):
+            resp = client.post("/public/jobs/failed-1/retry", headers=self._auth_headers())
+        assert resp.status_code == 202
+        assert resp.get_json()["parent_job_id"] == "failed-1"

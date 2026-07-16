@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Dev overrides: hot-reload mounts, debug mode
 services:
   api:

@@ -144,6 +144,13 @@ class TestVersioningEndpoints:
             resp = client.get("/public/generate/versions/does-not-exist")
         assert resp.status_code == 404
 
+    def test_get_version_hides_another_users_record(self, client, tmp_path):
+        with patch("utils.versioning._VERSIONS_DIR", tmp_path):
+            from utils.versioning import save_version
+            vid = save_version("other@example.com", "text", "secret", ["q"], {}, SAMPLE_ROWS, 1)
+            resp = client.get(f"/public/generate/versions/{vid}")
+        assert resp.status_code == 404
+
     def test_list_versions_401_on_bad_auth(self, client):
         from auth_utils import InvalidTokenError
         with patch("app.extractUserEmailFromRequest", side_effect=InvalidTokenError("no")):
@@ -185,6 +192,13 @@ class TestVersioningEndpoints:
 
 
 class TestVersioningMutationEndpoints:
+    def test_rename_hides_another_users_record(self, client, tmp_path):
+        with patch("utils.versioning._VERSIONS_DIR", tmp_path):
+            from utils.versioning import save_version
+            vid = save_version("other@example.com", "text", "secret", ["q"], {}, SAMPLE_ROWS, 1)
+            resp = client.patch(f"/public/generate/versions/{vid}", json={"name": "stolen"})
+        assert resp.status_code == 404
+
     def test_rename_version_endpoint(self, client, tmp_path):
         with patch("utils.versioning._VERSIONS_DIR", tmp_path):
             from utils.versioning import save_version

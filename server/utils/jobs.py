@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 
 _JOBS_DIR = Path(os.getenv("SYNTHETIC_OUTPUT_DIR", "./outputs")) / "jobs"
 JOB_TTL_HOURS = int(os.getenv("JOB_TTL_HOURS", "24"))
+MAX_ACTIVE_JOBS_PER_USER = int(os.getenv("MAX_ACTIVE_JOBS_PER_USER", "3"))
+
+
+class JobLimitExceeded(Exception):
+    pass
 
 
 def _jobs_dir() -> Path:
@@ -55,6 +60,8 @@ def create_job(task_type: str, user_email: str, body: dict) -> dict:
         "result": None,
         "error": None,
         "webhook_url": body.get("webhook_url"),
+        "request": body,
+        "parent_job_id": body.get("parent_job_id"),
     }
     _write(job)
     return job
@@ -110,6 +117,9 @@ def _send_webhook(job: dict) -> None:
 
 def _run_job_in_thread(job_id: str, body: dict, user_email: str) -> None:
     from api_endpoints.handler import _resolve_generator
+    current = get_job(job_id)
+    if current is None or current.get("status") == "canceled":
+        return
     update_job(job_id, status="running")
     try:
         task_type = body.get("task_type")
@@ -124,6 +134,9 @@ def _run_job_in_thread(job_id: str, body: dict, user_email: str) -> None:
             body.get("examples", []),
             body.get("params", {}),
         )
+        current = get_job(job_id)
+        if current is None or current.get("status") == "canceled":
+            return
         update_job(job_id, status="succeeded", result=rows, progress={"completed": len(rows), "total": len(rows)})
         job = get_job(job_id)
         if job:
@@ -141,6 +154,17 @@ def submit_job(body: dict, user_email: str) -> dict:
     Submit a generation job. Uses RQ if REDIS_URL is set; otherwise threads.
     Returns the job dict with job_id and initial status='queued'.
     """
+    active_jobs = 0
+    for path in _jobs_dir().glob("*.json"):
+        try:
+            existing = json.loads(path.read_text())
+            if existing.get("user_email") == user_email and existing.get("status") in ("queued", "running"):
+                active_jobs += 1
+        except Exception:
+            continue
+    if active_jobs >= MAX_ACTIVE_JOBS_PER_USER:
+        raise JobLimitExceeded(f"Maximum of {MAX_ACTIVE_JOBS_PER_USER} active jobs reached")
+
     job = create_job(body.get("task_type", ""), user_email, body)
     job_id = job["job_id"]
 
@@ -159,3 +183,15 @@ def submit_job(body: dict, user_email: str) -> dict:
     t = threading.Thread(target=_run_job_in_thread, args=(job_id, body, user_email), daemon=True)
     t.start()
     return job
+
+
+def retry_job(job_id: str, user_email: str) -> Optional[dict]:
+    """Create a new attempt for a failed or canceled job owned by the user."""
+    original = get_job(job_id)
+    if original is None or original.get("user_email") != user_email:
+        return None
+    if original.get("status") not in ("failed", "canceled"):
+        raise ValueError("Only failed or canceled jobs can be retried")
+    body = dict(original.get("request") or {})
+    body["parent_job_id"] = job_id
+    return submit_job(body, user_email)

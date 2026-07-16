@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("OPENAI_API_KEY", "test-key-sk-1234")
 os.environ.setdefault("REPLICATE_API_TOKEN", "test-replicate-token")
 os.environ.setdefault("SYNTHETIC_OUTPUT_DIR", "/tmp/synthetic-test-output")
+os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-at-least-32-bytes")
 
 
 @pytest.fixture

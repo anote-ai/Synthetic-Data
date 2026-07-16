@@ -31,26 +31,24 @@ class TestAuthUtils:
         with pytest.raises(InvalidTokenError):
             extractUserEmailFromRequest(self._make_req("Basic abc123"))
 
-    def test_bearer_with_no_trailing_space_accepted(self):
+    def test_bearer_with_no_token_rejected(self):
         """Browsers trim the trailing space from 'Bearer ' when the token is
         empty, so the header arrives as literally 'Bearer' with no token."""
-        from auth_utils import extractUserEmailFromRequest
-        with patch("auth_utils._HAS_JWT", False):
-            email = extractUserEmailFromRequest(self._make_req("Bearer"))
-        assert email == "user@example.com"
+        from auth_utils import extractUserEmailFromRequest, InvalidTokenError
+        with pytest.raises(InvalidTokenError, match="Missing or malformed"):
+            extractUserEmailFromRequest(self._make_req("Bearer"))
 
-    def test_bearer_scheme_case_insensitive(self):
-        from auth_utils import extractUserEmailFromRequest
+    def test_missing_jwt_support_is_rejected(self):
+        from auth_utils import extractUserEmailFromRequest, InvalidTokenError
         with patch("auth_utils._HAS_JWT", False):
-            email = extractUserEmailFromRequest(self._make_req("bearer sometoken"))
-        assert email == "user@example.com"
+            with pytest.raises(InvalidTokenError, match="unavailable"):
+                extractUserEmailFromRequest(self._make_req("bearer sometoken"))
 
-    def test_fallback_without_jwt(self):
-        """When _HAS_JWT is False, any Bearer token returns the default email."""
-        from auth_utils import extractUserEmailFromRequest
+    def test_fallback_without_jwt_is_not_permitted(self):
+        from auth_utils import extractUserEmailFromRequest, InvalidTokenError
         with patch("auth_utils._HAS_JWT", False):
-            email = extractUserEmailFromRequest(self._make_req("Bearer sometoken"))
-        assert email == "user@example.com"
+            with pytest.raises(InvalidTokenError, match="unavailable"):
+                extractUserEmailFromRequest(self._make_req("Bearer sometoken"))
 
     def test_invalid_token_raises_when_jwt_available(self):
         from auth_utils import extractUserEmailFromRequest, InvalidTokenError, _HAS_JWT
