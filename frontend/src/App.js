@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import exampleDatasets from './exampleDatasets';
+import { buildAnoteImportPayload, projectUrlFromResponse } from './anoteExport';
 
 const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 const ANOTE_PRODUCT_KEY = 'anote_product_api_key';
@@ -110,24 +111,6 @@ function downloadBlob(content, filename, mime) {
 }
 
 // ── Version history API (backed by /public/generate/versions on the server) ───
-
-function buildAnoteImportPayload(rows, context) {
-  const data = rows.map(({ status, ...row }) => row);
-  const columns = data.length ? Object.keys(data[0]) : context.columns;
-
-  return {
-    name: context.name,
-    columns,
-    rows: data,
-    source: 'anote-synthetic-data',
-    metadata: {
-      task_type: context.taskType,
-      prompt: context.prompt,
-      generated_rows: data.length,
-      created_at: new Date().toISOString(),
-    },
-  };
-}
 
 async function apiRequest(apiKey, path, options = {}) {
   const resp = await fetch(`${API_BASE}${path}`, {
@@ -930,7 +913,7 @@ export default function App() {
       }
 
       localStorage.setItem(ANOTE_PRODUCT_KEY, anoteKey);
-      const projectUrl = body.project_url || body.url || body.project?.url;
+      const projectUrl = projectUrlFromResponse(body);
       setAnoteStatus({
         type: 'success',
         message: 'Project created in Anote',
