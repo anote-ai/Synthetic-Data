@@ -24,6 +24,15 @@ VALID_TASK_TYPES = {"text", "image", "video", "audio", "agent", "pii", "language
 MAX_ROWS = int(os.getenv("MAX_ROWS_PER_REQUEST", "100"))
 
 
+class _BodyRequest:
+    """Minimal request-like wrapper so GenerateHandler can be called with a modified body."""
+
+    def __init__(self, body):
+        self.json = body
+        self.is_json = True
+        self.headers = request.headers
+
+
 @app.before_request
 def attach_request_id():
     g.request_id = str(uuid.uuid4())
@@ -95,16 +104,38 @@ def generate():
     if errors:
         return jsonify({"error": "Validation failed", "details": errors}), 422
 
-    result = GenerateHandler(request, user_email)
+    rsi_context = body.get("rsi_context")
+    effective_prompt = body.get("prompt", "")
+    rsi_template = None
+
+    if rsi_context:
+        from utils.rsi import select_template
+        rsi_template = select_template(
+            task_type,
+            weak_spot=rsi_context.get("weak_spot"),
+            template_id=rsi_context.get("template_id"),
+        )
+        effective_prompt = rsi_template["prompt_template"].format(
+            base_prompt=body.get("prompt", ""),
+            weak_spot=rsi_context.get("weak_spot") or "",
+        )
+        result = GenerateHandler(_BodyRequest({**body, "prompt": effective_prompt}), user_email)
+    else:
+        result = GenerateHandler(request, user_email)
+
+    if isinstance(result, tuple):
+        return result  # GenerateHandler returned an error response (e.g. unsupported task_type)
+
+    generated_data = result.get_json().get("data", [])
+    payload = dict(result.get_json())
 
     # Save version snapshot (non-fatal if it fails)
     try:
         from utils.versioning import save_version
-        generated_data = result.get_json().get("data", [])
         version_id = save_version(
             user_email=user_email,
             task_type=body.get("task_type"),
-            prompt=body.get("prompt", ""),
+            prompt=effective_prompt,
             columns=body.get("columns", []),
             params=body.get("params", {}),
             result_data=generated_data,
@@ -113,12 +144,57 @@ def generate():
             parent_version_id=body.get("parent_version_id"),
             examples=body.get("examples", []),
         )
-        payload = result.get_json()
         payload["version_id"] = version_id
-        return jsonify(payload)
     except Exception as e:
         logger.warning("Versioning failed (non-fatal): %s", e)
-        return result
+
+    if rsi_context:
+        try:
+            from utils.rsi import compute_lift, save_batch, record_template_result
+
+            baseline_data = rsi_context.get("baseline_data")
+            test_data = rsi_context.get("test_data")
+            text_column = rsi_context.get("text_column")
+            label_column = rsi_context.get("label_column")
+            if baseline_data and test_data and text_column and label_column:
+                lift_result = compute_lift(baseline_data, generated_data, test_data, text_column, label_column)
+            else:
+                lift_result = {"status": "unscored"}
+
+            batch_id = save_batch(
+                user_email=user_email,
+                task_type=task_type,
+                template_id=rsi_template["template_id"],
+                weak_spot=rsi_context.get("weak_spot"),
+                target_model=rsi_context.get("target_model"),
+                iteration=rsi_context.get("iteration"),
+                prompt=effective_prompt,
+                row_count=len(generated_data),
+                lift_result=lift_result,
+            )
+            if lift_result.get("lift_score") is not None:
+                record_template_result(task_type, rsi_template["template_id"], batch_id, lift_result["lift_score"])
+
+            rsi_block = {
+                "batch_id": batch_id,
+                "template_id": rsi_template["template_id"],
+                "status": lift_result.get("status", "unscored"),
+                "baseline_score": lift_result.get("baseline_score"),
+                "new_score": lift_result.get("new_score"),
+                "lift_score": lift_result.get("lift_score"),
+            }
+            if lift_result.get("status") == "flagged":
+                rsi_block["warning"] = (
+                    f"Synthetic batch reduced macro-F1 by {abs(lift_result['lift_score'])} vs baseline "
+                    "— review before adding it to the training set."
+                )
+            elif lift_result.get("status") == "error":
+                rsi_block["error"] = lift_result.get("error")
+            payload["rsi"] = rsi_block
+        except Exception as e:
+            logger.warning("RSI scoring failed (non-fatal): %s", e)
+
+    return jsonify(payload)
 
 
 @app.route("/public/generate/versions", methods=["GET"])
@@ -212,6 +288,45 @@ def restore_version(version_id):
     return jsonify(_get(new_version_id))
 
 
+@app.route("/public/rsi/batches/<batch_id>", methods=["GET"])
+def get_rsi_batch(batch_id):
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    from utils.rsi import get_batch
+    batch = get_batch(batch_id)
+    if batch is None:
+        return jsonify({"error": f"Batch '{batch_id}' not found"}), 404
+    return jsonify(batch)
+
+
+@app.route("/public/rsi/batches", methods=["GET"])
+def list_rsi_batches():
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    from utils.rsi import list_batches
+    task_type = request.args.get("task_type")
+    limit = min(int(request.args.get("limit", 50)), 200)
+    return jsonify({"batches": list_batches(task_type=task_type, limit=limit)})
+
+
+@app.route("/public/rsi/templates", methods=["GET"])
+def get_rsi_templates():
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    from utils.rsi import list_templates
+    task_type = request.args.get("task_type")
+    return jsonify({"templates": list_templates(task_type=task_type)})
+
+
 @app.route("/public/generate/export", methods=["POST"])
 def generate_export():
     from utils.export import make_export_response
@@ -231,12 +346,6 @@ def generate_export():
     VALID_FORMATS = {"csv", "jsonl", "parquet", "json"}
     if fmt not in VALID_FORMATS:
         return jsonify({"error": f"Invalid format. Must be one of: {VALID_FORMATS}"}), 422
-
-    class _BodyRequest:
-        def __init__(self, b):
-            self.json = b
-            self.is_json = True
-            self.headers = request.headers
 
     result = GenerateHandler(_BodyRequest(body), user_email)
     data = result.get_json().get("data", [])
