@@ -33,3 +33,4 @@ tzdata==2025.2
 nest_asyncio==1.6.0
 rq>=1.16.0
 redis>=5.0.0
+scikit-learn>=1.4.0
