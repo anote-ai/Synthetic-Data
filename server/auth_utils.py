@@ -19,15 +19,19 @@ def extractUserEmailFromRequest(req) -> str:
     """Extract user email from JWT Bearer token in Authorization header."""
     auth_header = req.headers.get("Authorization", "")
     scheme, _, token = auth_header.partition(" ")
-    if scheme.lower() != "bearer":
+    if scheme.lower() != "bearer" or not token:
         raise InvalidTokenError("Missing or malformed Authorization header")
     if not _HAS_JWT:
-        # Without PyJWT installed, accept any non-empty token
-        return "user@example.com"
-    secret = os.getenv("JWT_SECRET_KEY", "dev-secret")
+        raise InvalidTokenError("JWT support is unavailable")
+    secret = os.getenv("JWT_SECRET_KEY")
+    if not secret:
+        raise InvalidTokenError("JWT_SECRET_KEY is not configured")
     try:
         payload = pyjwt.decode(token, secret, algorithms=["HS256"])
-        return payload.get("email", "user@example.com")
+        email = payload.get("email")
+        if not email:
+            raise InvalidTokenError("Token is missing the email claim")
+        return email
     except Exception as e:
         raise InvalidTokenError(str(e))
 
@@ -49,7 +53,9 @@ def generate_token(email: str) -> str:
     if not _HAS_JWT:
         raise RuntimeError("PyJWT not installed — pip install PyJWT")
     import time
-    secret = os.getenv("JWT_SECRET_KEY", "dev-secret")
+    secret = os.getenv("JWT_SECRET_KEY")
+    if not secret:
+        raise RuntimeError("JWT_SECRET_KEY is not configured")
     payload = {
         "email": email,
         "iat": int(time.time()),

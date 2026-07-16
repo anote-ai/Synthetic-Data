@@ -212,13 +212,13 @@ def list_versions():
 @app.route("/public/generate/versions/<version_id>", methods=["GET"])
 def get_version(version_id):
     try:
-        extractUserEmailFromRequest(request)
+        user_email = extractUserEmailFromRequest(request)
     except InvalidTokenError as e:
         return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
 
     from utils.versioning import get_version as _get
     record = _get(version_id)
-    if record is None:
+    if record is None or record.get("user_email") != user_email:
         return jsonify({"error": f"Version '{version_id}' not found"}), 404
     return jsonify(record)
 
@@ -226,7 +226,7 @@ def get_version(version_id):
 @app.route("/public/generate/versions/<version_id>", methods=["PATCH"])
 def rename_version(version_id):
     try:
-        extractUserEmailFromRequest(request)
+        user_email = extractUserEmailFromRequest(request)
     except InvalidTokenError as e:
         return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
 
@@ -236,7 +236,8 @@ def rename_version(version_id):
         return jsonify({"error": "Nothing to update — provide 'name' and/or 'quality_score'"}), 422
 
     from utils.versioning import get_version as _get, update_version as _update
-    if _get(version_id) is None:
+    record = _get(version_id)
+    if record is None or record.get("user_email") != user_email:
         return jsonify({"error": f"Version '{version_id}' not found"}), 404
 
     record = _update(version_id, **patch)
@@ -246,7 +247,7 @@ def rename_version(version_id):
 @app.route("/public/generate/versions/<version_id>/diff", methods=["GET"])
 def diff_version(version_id):
     try:
-        extractUserEmailFromRequest(request)
+        user_email = extractUserEmailFromRequest(request)
     except InvalidTokenError as e:
         return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
 
@@ -254,7 +255,10 @@ def diff_version(version_id):
     if not against:
         return jsonify({"error": "Query param 'against' (a version_id) is required"}), 422
 
-    from utils.versioning import diff_versions as _diff
+    from utils.versioning import diff_versions as _diff, get_version as _get
+    records = (_get(version_id), _get(against))
+    if any(record is None or record.get("user_email") != user_email for record in records):
+        return jsonify({"error": "One or both versions not found"}), 404
     result = _diff(version_id, against)
     if result is None:
         return jsonify({"error": "One or both versions not found"}), 404
@@ -270,7 +274,7 @@ def restore_version(version_id):
 
     from utils.versioning import get_version as _get, save_version as _save
     source = _get(version_id)
-    if source is None:
+    if source is None or source.get("user_email") != user_email:
         return jsonify({"error": f"Version '{version_id}' not found"}), 404
 
     new_version_id = _save(
@@ -497,7 +501,7 @@ def generate_stream():
 @app.route("/public/generate/async", methods=["POST"])
 def generate_async():
     """Submit a generation job and return immediately with a job_id."""
-    from utils.jobs import submit_job
+    from utils.jobs import JobLimitExceeded, submit_job
 
     if not request.is_json:
         return jsonify({"error": "Content-Type must be application/json"}), 415
@@ -522,7 +526,10 @@ def generate_async():
     if errors:
         return jsonify({"error": "Validation failed", "details": errors}), 422
 
-    job = submit_job(body, user_email)
+    try:
+        job = submit_job(body, user_email)
+    except JobLimitExceeded as e:
+        return jsonify({"error": str(e)}), 429
     return jsonify({"job_id": job["job_id"], "status": job["status"]}), 202
 
 
@@ -532,12 +539,12 @@ def get_job(job_id):
     from utils.jobs import get_job as _get
 
     try:
-        extractUserEmailFromRequest(request)
+        user_email = extractUserEmailFromRequest(request)
     except InvalidTokenError as e:
         return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
 
     job = _get(job_id)
-    if job is None:
+    if job is None or job.get("user_email") != user_email:
         return jsonify({"error": f"Job '{job_id}' not found"}), 404
     return jsonify(job)
 
@@ -548,15 +555,39 @@ def cancel_job(job_id):
     from utils.jobs import cancel_job as _cancel
 
     try:
-        extractUserEmailFromRequest(request)
+        user_email = extractUserEmailFromRequest(request)
     except InvalidTokenError as e:
         return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
 
-    job = _cancel(job_id)
-    if job is None:
+    from utils.jobs import get_job as _get
+    existing = _get(job_id)
+    if existing is None or existing.get("user_email") != user_email:
         return jsonify({"error": f"Job '{job_id}' not found"}), 404
+    job = _cancel(job_id)
     return jsonify(job)
 
 
+@app.route("/public/jobs/<job_id>/retry", methods=["POST"])
+def retry_job(job_id):
+    """Create a new attempt for an authenticated user's failed/canceled job."""
+    try:
+        user_email = extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    from utils.jobs import retry_job as _retry
+    try:
+        job = _retry(job_id, user_email)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
+    if job is None:
+        return jsonify({"error": f"Job '{job_id}' not found"}), 404
+    return jsonify({"job_id": job["job_id"], "status": job["status"], "parent_job_id": job_id}), 202
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "5000")),
+        debug=os.getenv("FLASK_DEBUG", "false").lower() == "true",
+    )

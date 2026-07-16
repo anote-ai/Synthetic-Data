@@ -109,7 +109,7 @@ Synthetic-Data/
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | CORS allowed origins (comma-separated) |
 | `MAX_ROWS_PER_REQUEST` | No | `100` | Maximum rows per `/public/generate` call |
 | `SYNTHETIC_OUTPUT_DIR` | No | `./outputs` | Directory for generated files and version snapshots |
-| `REACT_APP_API_BASE_URL` | No | `http://localhost:5000` | Backend URL used by React frontend build |
+| `REACT_APP_API_BASE_URL` | No | `http://localhost:5000` | Backend URL injected into the React frontend build |
 
 ---
 
