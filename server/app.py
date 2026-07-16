@@ -358,6 +358,40 @@ def generate_export():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/public/generate/huggingface", methods=["POST"])
+def export_to_huggingface():
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+
+    try:
+        extractUserEmailFromRequest(request)
+    except InvalidTokenError as e:
+        return jsonify({"error": "Invalid JWT token", "detail": str(e)}), 401
+
+    body = request.get_json(silent=True) or {}
+    required = [field for field in ("token", "repo_id", "rows") if not body.get(field)]
+    if required:
+        return jsonify({"error": f"Missing required fields: {', '.join(required)}"}), 422
+    if "/" not in body["repo_id"]:
+        return jsonify({"error": "Dataset name must use username/name format"}), 422
+
+    try:
+        from utils.huggingface_export import push_dataset
+        url = push_dataset(
+            token=body["token"],
+            repo_id=body["repo_id"],
+            private=bool(body.get("private", False)),
+            rows=body["rows"],
+            prompt=body.get("prompt", ""),
+            task_category=body.get("task_category", "text-classification"),
+            language=body.get("language", "en"),
+        )
+        return jsonify({"dataset_url": url}), 201
+    except Exception as e:
+        logger.warning("Hugging Face export failed: %s", type(e).__name__)
+        return jsonify({"error": "Hugging Face export failed. Check the token and dataset name."}), 502
+
+
 @app.route("/public/generate/quality", methods=["POST"])
 def generate_quality():
     from utils.quality import score_dataset
