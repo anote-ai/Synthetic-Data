@@ -35,7 +35,7 @@ Synthetic-Data/
 │   │   ├── audio.py                  # faster-whisper transcription
 │   │   ├── PII.py                    # Async LLM-enhanced PII generation (most complex)
 │   │   ├── Language.py               # Japanese Q&A from Wikipedia via GPT-4
-│   │   └── agent.py                  # Empty placeholder
+│   │   └── agent.py                  # Multi-turn agent tool-call trace generation (OpenAI function calling)
 │   ├── tests/
 │   │   └── test_generate.py          # pytest for /public/generate endpoint
 │   └── sdk/
@@ -122,7 +122,7 @@ def generate_{modality}_data(prompt, columns, num_rows, examples) -> list[dict]:
 | `audio.py` | Functional | faster-whisper | GPU (float16) or CPU (int8) auto-detection |
 | `PII.py` | Comprehensive | OpenAI AsyncOpenAI | 14 PII types, semaphore-based concurrency (default 5) |
 | `Language.py` | Comprehensive | OpenAI (gpt-4o-mini + gpt-4) | Japanese Q&A from ja.wikipedia.org |
-| `agent.py` | Empty | — | Placeholder for future agent trace generation |
+| `agent.py` | Functional | OpenAI (gpt-4o-mini, function calling) | Generates multi-turn tool-call traces; configurable difficulty, tool set, and outcome distribution |
 
 ---
 
