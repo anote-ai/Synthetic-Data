@@ -15,9 +15,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Run test suites before deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: |
+          cd server
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-mock pytest-asyncio pytest-cov
+
+      - name: Run backend tests
+        env:
+          OPENAI_API_KEY: "test-key-not-real"
+          REPLICATE_API_TOKEN: "test-token-not-real"
+          SYNTHETIC_OUTPUT_DIR: "/tmp/synthetic-test-output"
+        run: |
+          cd server
+          pytest tests/ -v --tb=short
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Run frontend tests
+        working-directory: frontend
+        env:
+          CI: true
+        run: npm test -- --watchAll=false
+
   deploy-backend:
     name: Deploy Backend to ECS
     runs-on: ubuntu-latest
+    needs: verify
     environment: ${{ github.event.inputs.environment || 'production' }}
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +147,7 @@ jobs:
   notify:
     name: Notify on Failure
     runs-on: ubuntu-latest
-    needs: [deploy-backend, deploy-frontend]
+    needs: [verify, deploy-backend, deploy-frontend]
     if: failure()
     steps:
       - uses: slackapi/slack-github-action@v1
